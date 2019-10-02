@@ -1,0 +1,5 @@
+.env
+*.iml
+.idea
+.svn
+/vendor/pyLibrary/vendor/sqlite
