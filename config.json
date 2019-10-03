@@ -5,13 +5,17 @@
 		"debug": false,
 		"threaded": true,
 		"processes": 1,
-		"ssl_context": "adhoc",
-		"allow_exit": true
+//		"ssl_context": "adhoc",
+		"load_dotenv": false
 	},
 	"constants": {
 		"pyLibrary.env.http.default_headers": {
 			"Referer": "auth0-api"
 		}
+	},
+	"auth0": {
+		"domain": "dev-8821kz09.auth0.com",
+		"api.identifier": "https://locahost/query"
 	},
 	"debug": {
 		"trace": true,

@@ -1,73 +1,43 @@
 """Python Flask API Auth0 integration example
 """
 
-import json
 from functools import wraps
-from os import environ as env
 from ssl import PROTOCOL_SSLv23, SSLContext
 
-from dotenv import load_dotenv, find_dotenv
 from flask import Flask, request, jsonify, _request_ctx_stack, Response
 from jose import jwt
-from mo_dots import is_data
+
+from mo_dots import is_data, wrap, coalesce
+from mo_json import value2json
 from mo_files import TempFile, File
 from mo_logs import startup, constants
 from mo_threads import Thread
+from pyLibrary.env import http
 from pyLibrary.env.flask_wrappers import cors_wrapper
-from six.moves.urllib.request import urlopen
-
 from vendor.mo_logs import Log
 
-ENV_FILE = find_dotenv()
-if ENV_FILE:
-    load_dotenv(ENV_FILE)
-AUTH0_DOMAIN = env.get("AUTH0_DOMAIN")
-API_IDENTIFIER = env.get("API_IDENTIFIER")
+DEBUG = True
 ALGORITHMS = ["RS256"]
 APP = Flask(__name__)
 
 
-# Format error response and append status code.
-class AuthError(Exception):
-    def __init__(self, error, status_code):
-        self.error = error
-        self.status_code = status_code
-
-
-@APP.errorhandler(AuthError)
+@APP.errorhandler(Exception)
 def handle_auth_error(ex):
-    response = jsonify(ex.error)
-    response.status_code = ex.status_code
-    return response
+    code = coalesce(ex.params.code, 401)
+    return Response(value2json(ex), status=code)
 
 
 def get_token_auth_header():
     """Obtains the access token from the Authorization Header
     """
-    auth = request.headers.get("Authorization", None)
-    if not auth:
-        raise AuthError({"code": "authorization_header_missing",
-                        "description":
-                            "Authorization header is expected"}, 401)
-
-    parts = auth.split()
-
-    if parts[0].lower() != "bearer":
-        raise AuthError({"code": "invalid_header",
-                        "description":
-                            "Authorization header must start with"
-                            " Bearer"}, 401)
-    elif len(parts) == 1:
-        raise AuthError({"code": "invalid_header",
-                        "description": "Token not found"}, 401)
-    elif len(parts) > 2:
-        raise AuthError({"code": "invalid_header",
-                        "description":
-                            "Authorization header must be"
-                            " Bearer token"}, 401)
-
-    token = parts[1]
-    return token
+    try:
+        auth = request.headers.get("Authorization", None)
+        bearer, token = auth.split()
+        if bearer.lower() == "bearer":
+            return token
+    except Exception as e:
+        pass
+    Log.error('Expecting "Authorization = Bearer <token>" in header')
 
 
 def requires_scope(required_scope):
@@ -76,36 +46,33 @@ def requires_scope(required_scope):
         required_scope (str): The scope required to access the resource
     """
     token = get_token_auth_header()
-    unverified_claims = jwt.get_unverified_claims(token)
-    if unverified_claims.get("scope"):
-        token_scopes = unverified_claims["scope"].split()
-        for token_scope in token_scopes:
-            if token_scope == required_scope:
-                return True
-    return False
+    claims = wrap(jwt.get_unverified_claims(token))
+    return required_scope in claims.scope.split()
 
 
 def requires_auth(f):
-    """Determines if the access token is valid
-    """
+    """Determines if the access token is valid"""
+
     @wraps(f)
     def decorated(*args, **kwargs):
         token = get_token_auth_header()
-        jsonurl = urlopen("https://"+AUTH0_DOMAIN+"/.well-known/jwks.json")
-        jwks = json.loads(jsonurl.read())
+        DEBUG and Log.note("verify {{token|limit(40)}}", token=token)
+        if token.split('.') != 3:
+            # Opaque Access Token
+            url = "https://" + AUTH0_DOMAIN + "/userinfo"
+            response = http.get_json(url, headers={"Authorization": 'Bearer ' + token})
+            DEBUG and Log.note("content: {{body|json}}", body=response)
+            return
+
+        jwks = http.get_json("https://" + AUTH0_DOMAIN + "/.well-known/jwks.json")
         try:
             unverified_header = jwt.get_unverified_header(token)
-        except jwt.JWTError:
-            raise AuthError({"code": "invalid_header",
-                            "description":
-                                "Invalid header. "
-                                "Use an RS256 signed JWT Access Token"}, 401)
+        except jwt.JWTError as e:
+            Log.error("Expecting a RS256 signed JWT Access Token", cause=e)
+
         if unverified_header["alg"] == "HS256":
-            raise AuthError({"code": "invalid_header",
-                            "description":
-                                "Invalid header. "
-                                "Use an RS256 signed JWT Access Token"}, 401)
-        rsa_key = {}
+            Log.error("Expecting a RS256 signed JWT Access Token")
+
         for key in jwks["keys"]:
             if key["kid"] == unverified_header["kid"]:
                 rsa_key = {
@@ -115,33 +82,25 @@ def requires_auth(f):
                     "n": key["n"],
                     "e": key["e"]
                 }
-        if rsa_key:
-            try:
-                payload = jwt.decode(
-                    token,
-                    rsa_key,
-                    algorithms=ALGORITHMS,
-                    audience=API_IDENTIFIER,
-                    issuer="https://"+AUTH0_DOMAIN+"/"
-                )
-            except jwt.ExpiredSignatureError:
-                raise AuthError({"code": "token_expired",
-                                "description": "token is expired"}, 401)
-            except jwt.JWTClaimsError:
-                raise AuthError({"code": "invalid_claims",
-                                "description":
-                                    "incorrect claims,"
-                                    " please check the audience and issuer"}, 401)
-            except Exception:
-                raise AuthError({"code": "invalid_header",
-                                "description":
-                                    "Unable to parse authentication"
-                                    " token."}, 401)
+                try:
+                    payload = jwt.decode(
+                        token,
+                        rsa_key,
+                        algorithms=ALGORITHMS,
+                        audience=API_IDENTIFIER,
+                        issuer="https://" + AUTH0_DOMAIN + "/"
+                    )
+                    _request_ctx_stack.top.current_user = payload
+                    return f(*args, **kwargs)
+                except jwt.ExpiredSignatureError as e:
+                    Log.error("Token has expired", code=403, cause=e)
+                except jwt.JWTClaimsError as e:
+                    Log.error("Incorrect claims, please check the audience and issuer", code=403, cause=e)
+                except Exception as e:
+                    Log.error("Problem parsing", cause=e)
 
-            _request_ctx_stack.top.current_user = payload
-            return f(*args, **kwargs)
-        raise AuthError({"code": "invalid_header",
-                        "description": "Unable to find appropriate key"}, 401)
+        Log.error("Unable to find appropriate key")
+
     return decorated
 
 
@@ -152,6 +111,7 @@ def nothing():
         "",
         status=200
     )
+
 
 # Controllers API
 @APP.route("/api/public")
@@ -182,18 +142,13 @@ def private_scoped():
     if requires_scope("read:messages"):
         response = "Hello from a private endpoint! You need to be authenticated and have a scope of read:messages to see this."
         return jsonify(message=response)
-    raise AuthError({
-        "code": "Unauthorized",
-        "description": "You don't have access to this resource"
-    }, 403)
+    Log.error("You don't have access to this resource", code=403)
 
 
 config = None
 
 
 def setup_flask_ssl():
-    config.flask.ssl_context = None
-
     if not config.flask.ssl_context:
         return
 
@@ -226,7 +181,8 @@ def setup_flask_ssl():
     Thread.run("SSL Server", runner)
 
     if config.flask.ssl_context and config.flask.port != 80:
-        Log.warning("ActiveData has SSL context, but is still listening on non-encrypted http port {{port}}", port=config.flask.port)
+        Log.warning("ActiveData has SSL context, but is still listening on non-encrypted http port {{port}}",
+                    port=config.flask.port)
 
     config.flask.ssl_context = None
 
@@ -234,7 +190,11 @@ def setup_flask_ssl():
 if __name__ == "__main__":
     config = startup.read_settings()
 
+    AUTH0_DOMAIN = config.auth0.domain
+    API_IDENTIFIER = config.auth0.api.identifier
+
     constants.set(config.constants)
     Log.start(config.debug)
+    Log.note("start servers")
     setup_flask_ssl()
-    APP.run(host="0.0.0.0", port=env.get("PORT", 5000))
+    APP.run(**config.flask)
