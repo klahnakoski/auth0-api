@@ -6,11 +6,12 @@ from ssl import PROTOCOL_SSLv23, SSLContext
 
 from flask import Flask, request, jsonify, _request_ctx_stack, Response
 from jose import jwt
+from mo_threads.threads import register_thread
 
 from mo_dots import is_data, wrap, coalesce
 from mo_json import value2json
 from mo_files import TempFile, File
-from mo_logs import startup, constants
+from mo_logs import startup, constants, Except
 from mo_threads import Thread
 from pyLibrary.env import http
 from pyLibrary.env.flask_wrappers import cors_wrapper
@@ -23,6 +24,7 @@ APP = Flask(__name__)
 
 @APP.errorhandler(Exception)
 def handle_auth_error(ex):
+    ex = Except.wrap(ex)
     code = coalesce(ex.params.code, 401)
     return Response(value2json(ex), status=code)
 
@@ -115,6 +117,7 @@ def nothing():
 
 # Controllers API
 @APP.route("/api/public")
+@register_thread
 @cors_wrapper
 def public():
     """No access token required to access this route
@@ -124,6 +127,7 @@ def public():
 
 
 @APP.route("/api/private", methods=['GET', 'POST'])
+@register_thread
 @cors_wrapper
 @requires_auth
 def private():
@@ -134,6 +138,7 @@ def private():
 
 
 @APP.route("/api/private-scoped")
+@register_thread
 @cors_wrapper
 @requires_auth
 def private_scoped():
