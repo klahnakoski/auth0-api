@@ -59,12 +59,12 @@ def requires_auth(f):
     def decorated(*args, **kwargs):
         token = get_token_auth_header()
         DEBUG and Log.note("verify {{token|limit(40)}}", token=token)
-        if token.split('.') != 3:
+        if len(token.split('.')) != 3:
             # Opaque Access Token
             url = "https://" + AUTH0_DOMAIN + "/userinfo"
             response = http.get_json(url, headers={"Authorization": 'Bearer ' + token})
             DEBUG and Log.note("content: {{body|json}}", body=response)
-            return
+            return f(*args, **kwargs)
 
         jwks = http.get_json("https://" + AUTH0_DOMAIN + "/.well-known/jwks.json")
         try:
@@ -77,17 +77,10 @@ def requires_auth(f):
 
         for key in jwks["keys"]:
             if key["kid"] == unverified_header["kid"]:
-                rsa_key = {
-                    "kty": key["kty"],
-                    "kid": key["kid"],
-                    "use": key["use"],
-                    "n": key["n"],
-                    "e": key["e"]
-                }
                 try:
                     payload = jwt.decode(
                         token,
-                        rsa_key,
+                        key,
                         algorithms=ALGORITHMS,
                         audience=API_IDENTIFIER,
                         issuer="https://" + AUTH0_DOMAIN + "/"
