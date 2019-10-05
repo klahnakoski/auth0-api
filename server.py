@@ -1,18 +1,15 @@
-"""Python Flask API Auth0 integration example
-"""
-
 from functools import wraps
 from ssl import PROTOCOL_SSLv23, SSLContext
 
 from flask import Flask, request, jsonify, _request_ctx_stack, Response
 from jose import jwt
-from mo_threads.threads import register_thread
 
 from mo_dots import is_data, wrap, coalesce
-from mo_json import value2json
 from mo_files import TempFile, File
+from mo_json import value2json
 from mo_logs import startup, constants, Except
 from mo_threads import Thread
+from mo_threads.threads import register_thread
 from pyLibrary.env import http
 from pyLibrary.env.flask_wrappers import cors_wrapper
 from vendor.mo_logs import Log
@@ -99,9 +96,10 @@ def requires_auth(f):
     return decorated
 
 
-@APP.route("/api/private", methods=['OPTIONS', 'HEAD'])
+@APP.route('/', defaults={'path': ''}, methods=['OPTIONS', 'HEAD'])
+@APP.route('/<path:path>', methods=['OPTIONS', 'HEAD'])
 @cors_wrapper
-def nothing():
+def nothing(*args, **kwargs):
     return Response(
         "",
         status=200
@@ -137,7 +135,7 @@ def private():
 def private_scoped():
     """A valid access token and an appropriate scope are required to access this route
     """
-    if requires_scope("read:messages"):
+    if requires_scope(config.auth0.scope):
         response = "Hello from a private endpoint! You need to be authenticated and have a scope of read:messages to see this."
         return jsonify(message=response)
     Log.error("You don't have access to this resource", code=403)
