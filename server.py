@@ -20,9 +20,11 @@ APP = Flask(__name__)
 
 
 @APP.errorhandler(Exception)
+@register_thread
 def handle_auth_error(ex):
     ex = Except.wrap(ex)
     code = coalesce(ex.params.code, 401)
+    Log.warning("sending error to client\n{{error}}", {"error": ex})
     return Response(value2json(ex), status=code)
 
 
@@ -138,7 +140,7 @@ def private_scoped():
     if requires_scope(config.auth0.scope):
         response = "Hello from a private endpoint! You need to be authenticated and have a scope of read:messages to see this."
         return jsonify(message=response)
-    Log.error("You don't have access to this resource", code=403)
+    Log.error("You don't have access to {{scope}}", scope=config.auth0.scope, code=403)
 
 
 config = None
