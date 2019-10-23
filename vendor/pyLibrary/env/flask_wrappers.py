@@ -9,16 +9,19 @@
 from __future__ import absolute_import, division, unicode_literals
 
 from functools import update_wrapper
+from ssl import PROTOCOL_SSLv23, SSLContext
 
-from mo_future import is_text, is_binary
 import flask
 from flask import Response
 
-from mo_dots import coalesce
-from mo_files import File
+from mo_dots import coalesce, is_data
+from mo_files import File, TempFile
+from mo_future import text_type
 from mo_json import value2json
 from mo_logs import Log
 from mo_logs.strings import unicode2utf8
+from mo_threads import Thread
+from pyLibrary.env import git
 from pyLibrary.env.big_data import ibytes2icompressed
 
 TOO_SMALL_TO_COMPRESS = 510  # DO NOT COMPRESS DATA WITH LESS THAN THIS NUMBER OF BYTES
@@ -116,3 +119,87 @@ def dockerflow(flask_app, backend_check):
 
 
 VERSION_JSON = None
+
+
+def add_version(flask_app):
+    """
+    ADD ROUTING TO HANDLE REQUEST FOR /__version__
+    :param flask_app: THE (Flask) APP
+    :return:
+    """
+    try:
+        version_info = unicode2utf8(value2json(
+            {
+                "source": "https://github.com/mozilla/ActiveData/tree/" + git.get_branch(),
+                # "version": "",
+                "commit": git.get_revision(),
+            },
+            pretty=True
+        ) + text_type("\n"))
+
+        Log.note("Using github version\n{{version}}", version=version_info)
+
+        @cors_wrapper
+        def version():
+            return Response(
+                version_info,
+                status=200,
+                headers={
+                    "Content-Type": "application/json"
+                }
+            )
+
+        flask_app.add_url_rule(str('/__version__'), None, version, defaults={}, methods=[str('GET'), str('POST')])
+    except Exception as e:
+        Log.error("Problem setting up listeners for dockerflow", cause=e)
+
+
+def setup_flask_ssl(flask_app, flask_config):
+    """
+    SPAWN A NEW THREAD TO RUN AN SSL ENDPOINT
+    REMOVES ssl_context FROM flask_config BEFORE RETURNING
+
+    :param flask_app:
+    :param flask_config:
+    :return:
+    """
+    if not flask_config.ssl_context:
+        return
+
+    ssl_flask = flask_config.copy()
+    ssl_flask.debug = False
+    ssl_flask.port = 443
+
+    if is_data(flask_config.ssl_context):
+        # EXPECTED PEM ENCODED FILE NAMES
+        # `load_cert_chain` REQUIRES CONCATENATED LIST OF CERTS
+        with TempFile() as tempfile:
+            try:
+                tempfile.write(File(ssl_flask.ssl_context.certificate_file).read_bytes())
+                if ssl_flask.ssl_context.certificate_chain_file:
+                    tempfile.write(File(ssl_flask.ssl_context.certificate_chain_file).read_bytes())
+                tempfile.flush()
+                tempfile.close()
+
+                context = SSLContext(PROTOCOL_SSLv23)
+                context.load_cert_chain(tempfile.name, keyfile=File(ssl_flask.ssl_context.privatekey_file).abspath)
+
+                ssl_flask.ssl_context = context
+            except Exception as e:
+                Log.error("Could not handle ssl context construction", cause=e)
+
+    def runner(please_stop):
+        Log.warning("ActiveData listening on encrypted port {{port}}", port=ssl_flask.port)
+        flask_app.run(**ssl_flask)
+
+    Thread.run("SSL Server", runner)
+
+    if flask_config.ssl_context and flask_config.port != 80:
+        Log.warning(
+            "ActiveData has SSL context, but is still listening on non-encrypted http port {{port}}",
+            port=flask_config.port
+        )
+
+    flask_config.ssl_context = None
+
+
