@@ -8,6 +8,23 @@
 //		"ssl_context": "adhoc",
 		"load_dotenv": false
 	},
+	"session": {
+		"store": {
+			"type": "sqlite",
+			"table": "sessions",
+			"filename": "sessions.sqlite"
+		},
+		"cookie": {
+			"name":"annotation_session",
+			"domain": "dev.localhost",
+			"secure": false,
+			"lifetime": 31536000,
+			"httponly": false
+		}
+	},
+	"permissions": {
+		"store": "permissions.sqlite"
+	},
 	"constants": {
 		"pyLibrary.env.http.default_headers": {
 			"Referer": "auth0-api"

@@ -1,11 +1,13 @@
 from flask import Flask, jsonify, Response
 
-from mo_auth import requires_auth, requires_scope
-from mo_dots import coalesce, Null
+from mo_auth import Authenticator, requires_scope
+from mo_auth.permissions import Permissions
+from mo_dots import coalesce
 from mo_json import value2json
 from mo_logs import startup, constants, Except
 from mo_threads.threads import register_thread
-from pyLibrary.env.flask_wrappers import cors_wrapper, setup_flask_ssl
+from pyLibrary.env.flask_wrappers import cors_wrapper, setup_flask_ssl, setup_flask_session
+from pyLibrary.sql.sqlite import Sqlite
 from vendor.mo_logs import Log
 
 DEBUG = True
@@ -42,15 +44,17 @@ def public():
 
 
 config = startup.read_settings()
-
 constants.set(config.constants)
 Log.start(config.debug)
+
+perm = Permissions(Sqlite(config.permissions.store))
+auth = Authenticator(config.auth0, perm)
 
 
 @APP.route("/api/private", methods=["GET", "POST"])
 @register_thread
 @cors_wrapper
-@requires_auth(config.auth0)
+@auth.requires_auth()
 def private():
     """A valid access token is required to access this route
     """
@@ -63,7 +67,7 @@ def private():
 @APP.route("/api/private-scoped")
 @register_thread
 @cors_wrapper
-@requires_auth(config.auth0)
+@auth.requires_auth()
 def private_scoped():
     """A valid access token and an appropriate scope are required to access this route
     """
@@ -75,4 +79,5 @@ def private_scoped():
 
 Log.note("start servers")
 setup_flask_ssl(APP, config.flask)
+setup_flask_session(APP, config.session)
 APP.run(**config.flask)

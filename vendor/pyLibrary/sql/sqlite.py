@@ -167,6 +167,7 @@ class Sqlite(DB):
         """
         :param table_name: TABLE IF INTEREST
         :return: SOME INFORMATION ABOUT THE TABLE
+            (cid, name, dtype, notnull, dfft_value, pk) tuples
         """
         details = self.query("PRAGMA table_info" + sql_iso(quote_value(table_name)))
         return details.data
@@ -501,13 +502,6 @@ CommandItem = namedtuple("CommandItem", ("command", "result", "is_done", "trace"
 _simple_word = re.compile(r"^\w+$", re.UNICODE)
 
 
-def _no_need_to_quote(name):
-    if name == "table":
-        return False
-    else:
-        return _simple_word.match(name)
-
-
 def quote_column(column_name, table=None):
     if isinstance(column_name, SQL):
         return column_name
@@ -517,8 +511,6 @@ def quote_column(column_name, table=None):
     if table != None:
         return SQL(" " + quote(table) + "." + quote(column_name) + " ")
     else:
-        if _no_need_to_quote(column_name):
-            return SQL(" " + column_name + " ")
         return SQL(" " + quote(column_name) + " ")
 
 

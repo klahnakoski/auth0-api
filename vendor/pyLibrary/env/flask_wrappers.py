@@ -13,8 +13,9 @@ from ssl import PROTOCOL_SSLv23, SSLContext
 
 import flask
 from flask import Response
+from pyLibrary.sql.sqlite import Sqlite
 
-from mo_dots import coalesce, is_data
+from mo_dots import coalesce, is_data, missing, wrap, exists
 from mo_files import File, TempFile
 from mo_future import text_type
 from mo_json import value2json
@@ -32,11 +33,11 @@ def gzip_wrapper(func, compress_lower_limit=None):
 
     def output(*args, **kwargs):
         response = func(*args, **kwargs)
-        accept_encoding = flask.request.headers.get('Accept-Encoding', '')
-        if 'gzip' not in accept_encoding.lower():
+        accept_encoding = flask.request.headers.get("Accept-Encoding", "")
+        if "gzip" not in accept_encoding.lower():
             return response
 
-        response.headers['Content-Encoding'] = 'gzip'
+        response.headers["Content-Encoding"] = "gzip"
         response.response = ibytes2icompressed(response.response)
 
         return response
@@ -50,6 +51,7 @@ def cors_wrapper(func):
     :param func:  Flask method that handles requests and returns a response
     :return: Same, but with permissive CORS headers set
     """
+
     def _setdefault(obj, key, value):
         if value == None:
             return
@@ -59,10 +61,22 @@ def cors_wrapper(func):
         response = func(*args, **kwargs)
         headers = response.headers
         _setdefault(headers, "Access-Control-Allow-Origin", "*")
-        _setdefault(headers, "Access-Control-Allow-Headers", flask.request.headers.get("Access-Control-Request-Headers"))
-        _setdefault(headers, "Access-Control-Allow-Methods", flask.request.headers.get("Access-Control-Request-Methods"))
+        _setdefault(
+            headers,
+            "Access-Control-Allow-Headers",
+            flask.request.headers.get("Access-Control-Request-Headers"),
+        )
+        _setdefault(
+            headers,
+            "Access-Control-Allow-Methods",
+            flask.request.headers.get("Access-Control-Request-Methods"),
+        )
         _setdefault(headers, "Content-Type", "application/json")
-        _setdefault(headers, "Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
+        _setdefault(
+            headers,
+            "Strict-Transport-Security",
+            "max-age=31536000; includeSubDomains; preload",
+        )
         return response
 
     output.provide_automatic_options = False
@@ -85,11 +99,7 @@ def dockerflow(flask_app, backend_check):
         @cors_wrapper
         def version():
             return Response(
-                VERSION_JSON,
-                status=200,
-                headers={
-                    "Content-Type": "application/json"
-                }
+                VERSION_JSON, status=200, headers={"Content-Type": "application/json"}
             )
 
         @cors_wrapper
@@ -102,18 +112,34 @@ def dockerflow(flask_app, backend_check):
                 return Response(
                     unicode2utf8(value2json(e)),
                     status=500,
-                    headers={
-                        "Content-Type": "application/json"
-                    }
+                    headers={"Content-Type": "application/json"},
                 )
 
         @cors_wrapper
         def lbheartbeat():
             return Response(status=200)
 
-        flask_app.add_url_rule(str('/__version__'), None, version, defaults={}, methods=[str('GET'), str('POST')])
-        flask_app.add_url_rule(str('/__heartbeat__'), None, heartbeat, defaults={}, methods=[str('GET'), str('POST')])
-        flask_app.add_url_rule(str('/__lbheartbeat__'), None, lbheartbeat, defaults={}, methods=[str('GET'), str('POST')])
+        flask_app.add_url_rule(
+            str("/__version__"),
+            None,
+            version,
+            defaults={},
+            methods=[str("GET"), str("POST")],
+        )
+        flask_app.add_url_rule(
+            str("/__heartbeat__"),
+            None,
+            heartbeat,
+            defaults={},
+            methods=[str("GET"), str("POST")],
+        )
+        flask_app.add_url_rule(
+            str("/__lbheartbeat__"),
+            None,
+            lbheartbeat,
+            defaults={},
+            methods=[str("GET"), str("POST")],
+        )
     except Exception as e:
         Log.error("Problem setting up listeners for dockerflow", cause=e)
 
@@ -128,28 +154,34 @@ def add_version(flask_app):
     :return:
     """
     try:
-        version_info = unicode2utf8(value2json(
-            {
-                "source": "https://github.com/mozilla/ActiveData/tree/" + git.get_branch(),
-                # "version": "",
-                "commit": git.get_revision(),
-            },
-            pretty=True
-        ) + text_type("\n"))
+        version_info = unicode2utf8(
+            value2json(
+                {
+                    "source": "https://github.com/mozilla/ActiveData/tree/"
+                    + git.get_branch(),
+                    # "version": "",
+                    "commit": git.get_revision(),
+                },
+                pretty=True,
+            )
+            + text_type("\n")
+        )
 
         Log.note("Using github version\n{{version}}", version=version_info)
 
         @cors_wrapper
         def version():
             return Response(
-                version_info,
-                status=200,
-                headers={
-                    "Content-Type": "application/json"
-                }
+                version_info, status=200, headers={"Content-Type": "application/json"}
             )
 
-        flask_app.add_url_rule(str('/__version__'), None, version, defaults={}, methods=[str('GET'), str('POST')])
+        flask_app.add_url_rule(
+            str("/__version__"),
+            None,
+            version,
+            defaults={},
+            methods=[str("GET"), str("POST")],
+        )
     except Exception as e:
         Log.error("Problem setting up listeners for dockerflow", cause=e)
 
@@ -175,21 +207,30 @@ def setup_flask_ssl(flask_app, flask_config):
         # `load_cert_chain` REQUIRES CONCATENATED LIST OF CERTS
         with TempFile() as tempfile:
             try:
-                tempfile.write(File(ssl_flask.ssl_context.certificate_file).read_bytes())
+                tempfile.write(
+                    File(ssl_flask.ssl_context.certificate_file).read_bytes()
+                )
                 if ssl_flask.ssl_context.certificate_chain_file:
-                    tempfile.write(File(ssl_flask.ssl_context.certificate_chain_file).read_bytes())
+                    tempfile.write(
+                        File(ssl_flask.ssl_context.certificate_chain_file).read_bytes()
+                    )
                 tempfile.flush()
                 tempfile.close()
 
                 context = SSLContext(PROTOCOL_SSLv23)
-                context.load_cert_chain(tempfile.name, keyfile=File(ssl_flask.ssl_context.privatekey_file).abspath)
+                context.load_cert_chain(
+                    tempfile.name,
+                    keyfile=File(ssl_flask.ssl_context.privatekey_file).abspath,
+                )
 
                 ssl_flask.ssl_context = context
             except Exception as e:
                 Log.error("Could not handle ssl context construction", cause=e)
 
     def runner(please_stop):
-        Log.warning("ActiveData listening on encrypted port {{port}}", port=ssl_flask.port)
+        Log.warning(
+            "ActiveData listening on encrypted port {{port}}", port=ssl_flask.port
+        )
         flask_app.run(**ssl_flask)
 
     Thread.run("SSL Server", runner)
@@ -197,9 +238,42 @@ def setup_flask_ssl(flask_app, flask_config):
     if flask_config.ssl_context and flask_config.port != 80:
         Log.warning(
             "ActiveData has SSL context, but is still listening on non-encrypted http port {{port}}",
-            port=flask_config.port
+            port=flask_config.port,
         )
 
     flask_config.ssl_context = None
 
 
+# SEE https://pythonhosted.org/Flask-Session/
+SESSION_VARIABLES = {
+    "SESSION_COOKIE_NAME": "cookie.name",
+    "SESSION_COOKIE_DOMAIN": "cookie.domain",
+    "SESSION_COOKIE_PATH": "cookie.path",
+    "SESSION_COOKIE_HTTPONLY": "cookie.httponly",
+    "SESSION_COOKIE_SECURE": "cookie.secure",
+    "PERMANENT SESSION_LIFETIME": "cookie.lifetime",
+    "SESSION_SQLITE_TABLE": "store.table",
+}
+
+
+def setup_flask_session(flask_app, session_config):
+    """
+    :param flask_app:
+    :param session_config:
+    :return:
+    """
+    session_config = wrap(session_config)
+
+    filename = session_config.store.filename
+    flask_app.config["SESSION_SQLITE"] = Sqlite(filename)
+    Log.note("flask.session using {{file}}", file=filename)
+
+    # INJECT CONFIG
+    for name, path in SESSION_VARIABLES.items():
+        value = session_config[path]
+        if exists(value):
+            flask_app.config[name] = value
+
+    from pyLibrary.env.flask_session import Session
+
+    Session(flask_app)

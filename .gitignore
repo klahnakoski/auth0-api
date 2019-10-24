@@ -3,3 +3,4 @@
 .idea
 .svn
 /vendor/pyLibrary/vendor/sqlite
+/*.sqlite
