@@ -105,7 +105,18 @@ class Authenticator(object):
             user = session.get("user")
             if not user:
                 # NEW USER
-                access_token = get_token_auth_header()
+                try:
+                    access_token = get_token_auth_header()
+                except Exception as e:
+                    raise Log.error(
+                        (
+                            "Expecting one of:\n"
+                            + "    Authorization = Bearer <access_token>\n"
+                            + "    Cookie: {{name}}=<session_token>\n"
+                        ),
+                        name="<cookie_name>",
+                    )
+
                 user_details = self.verify_opaque_token(access_token)
                 session["user"] = unwrap(
                     self.permissions.get_or_create_user(user_details)

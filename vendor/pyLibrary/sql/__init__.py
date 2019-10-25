@@ -169,6 +169,7 @@ SQL_SPACE = SQL(" ")
 SQL_OP = SQL("(")
 SQL_CP = SQL(")")
 SQL_EQ = SQL(" = ")
+SQL_LT = SQL(" < ")
 SQL_DOT = SQL(".")
 
 

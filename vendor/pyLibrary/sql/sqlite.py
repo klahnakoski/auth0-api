@@ -17,7 +17,7 @@ from collections import Mapping, namedtuple
 
 from mo_dots import Data, coalesce, unwraplist, listwrap, wrap
 from mo_files import File
-from mo_future import allocate_lock as _allocate_lock, text_type
+from mo_future import allocate_lock as _allocate_lock, text_type, first
 from mo_future import is_text
 from mo_future import zip_longest
 from mo_json import BOOLEAN, INTEGER, NESTED, NUMBER, OBJECT, STRING
@@ -554,6 +554,17 @@ def sql_eq(**item):
         else ConcatSQL((quote_column(k), SQL_IS_NULL))
         for k, v in item.items()
     ])
+
+
+def sql_lt(**item):
+    """
+    RETURN SQL FOR LESS-THAN (<) COMPARISION BETWEEN VARIABLES TO VALUES
+
+    :param item: keyword parameters representing variable and value
+    :return: SQL
+    """
+    k, v = first(item.items())
+    return ConcatSQL((quote_column(k), SQL_LT, quote_value(v)))
 
 
 def sql_query(command):

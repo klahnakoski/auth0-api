@@ -1,12 +1,12 @@
 from flask import Flask, jsonify, Response
 
 from mo_auth import Authenticator, requires_scope
+from mo_auth.flask_session import setup_flask_session
 from mo_auth.permissions import Permissions
 from mo_dots import coalesce
 from mo_json import value2json
 from mo_logs import startup, constants, Except
 from mo_threads.threads import register_thread
-from pyLibrary.env.flask_session import setup_flask_session
 from pyLibrary.env.flask_wrappers import cors_wrapper, setup_flask_ssl
 from pyLibrary.sql.sqlite import Sqlite
 from vendor.mo_logs import Log
