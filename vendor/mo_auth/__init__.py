@@ -117,7 +117,7 @@ class Authenticator(object):
                 self.markup_user()
             else:
                 # IS THIS A REVISITING USER
-                session["last_used"] = Date.now()
+                session["last_used"] = now
 
             # HOW DOES A LONG RUNNING AUTOMATION CONFIRM?
             # HOW DOES AUTOMATED SESSION WORK?
