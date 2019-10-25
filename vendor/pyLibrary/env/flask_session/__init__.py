@@ -9,11 +9,20 @@ from mo_dots import Data, wrap, exists
 from mo_future import first
 from mo_json import json2value, value2json
 from mo_logs import Log
+from mo_threads import Till
 from mo_threads.threads import register_thread
 from mo_times import Date
 from mo_times.dates import parse
-from pyLibrary.sql import SQL_WHERE, sql_list, SQL_SET
-from pyLibrary.sql.sqlite import sql_create, sql_eq, quote_column, sql_query, sql_insert, Sqlite
+from pyLibrary.sql import SQL_WHERE, sql_list, SQL_SET, SQL
+from pyLibrary.sql.sqlite import (
+    sql_create,
+    sql_eq,
+    quote_column,
+    sql_query,
+    sql_insert,
+    Sqlite,
+    quote_value,
+)
 
 
 class SqliteSessionInterface(FlaskSessionInterface):
@@ -32,6 +41,23 @@ class SqliteSessionInterface(FlaskSessionInterface):
         if not self.db.about(self.table):
             self.setup()
 
+    def monitor(self, please_stop):
+        while not please_stop:
+            # Delete expired session
+            try:
+                with self.db.transaction() as t:
+                    t.execute(
+                        "DELETE FROM "
+                        + quote_column(self.table)
+                        + SQL_WHERE
+                        + quote_column("expiry")
+                        + SQL(" < ")
+                        + quote_value(Date.now().unix)
+                    )
+            except Exception as e:
+                Log.warning("problem with session expiry", cause=e)
+            (please_stop | Till(seconds=60)).wait()
+
     def _generate_sid(self):
         return str(uuid4())
 
@@ -49,14 +75,15 @@ class SqliteSessionInterface(FlaskSessionInterface):
                 )
             )
 
+    @register_thread
     def open_session(self, app, request):
         now = Date.now().unix
         session_id = request.cookies.get(app.session_cookie_name)
         Log.note("got session_id {{session|quote}}", session=session_id)
         if not session_id:
-            output = Data(session_id=self._generate_sid(), permanent=True)
-            Log.note("return session {{session}}", session=output)
-            return output
+            session = Data(session_id=self._generate_sid(), permanent=True)
+            Log.note("return session {{session}}", session=session)
+            return session
         if self.use_signer:
             signer = self._get_signer(app)
             if signer is None:
@@ -73,15 +100,10 @@ class SqliteSessionInterface(FlaskSessionInterface):
             return Data(session_id=session_id, permanent=True)
 
         if saved_record.expiry <= now:
-            # Delete expired session
-            with self.db.transaction() as t:
-                t.execute(
-                    "DELETE FROM "
-                    + quote_column(self.table)
-                    + SQL_WHERE
-                    + sql_eq(session_id=session_id)
-                )
-            saved_record = None
+            session = Data(session_id=self._generate_sid(), permanent=True)
+            Log.note("return session {{session}}", session=session)
+            return session
+
         Log.note("record from db {{session}}", session=saved_record)
         session = json2value(saved_record.data)
         return session
@@ -157,11 +179,13 @@ def setup_flask_session(flask_app, session_config):
             flask_app.config[name] = value
 
     from pyLibrary.env.flask_session import SqliteSessionInterface
+
     flask_app.session_interface = SqliteSessionInterface(
         db=Sqlite(filename),
         table=session_config.store.table,
-        use_signer=flask_app.config.get("SESSION_USE_SIGNER")
+        use_signer=flask_app.config.get("SESSION_USE_SIGNER"),
     )
+
 
 # SEE https://pythonhosted.org/Flask-Session/
 SESSION_VARIABLES = {
@@ -173,5 +197,3 @@ SESSION_VARIABLES = {
     "PERMANENT SESSION_LIFETIME": "cookie.lifetime",
     "SESSION_SQLITE_TABLE": "store.table",
 }
-
-

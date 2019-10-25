@@ -65,10 +65,7 @@ def cors_wrapper(func):
         _setdefault(
             headers,
             "Access-Control-Allow-Origin",
-            coalesce(
-                flask.request.headers.get("Origin"),
-                "*"
-            )
+            coalesce(flask.request.headers.get("Origin"), "*"),
         )
         _setdefault(headers, "Access-Control-Allow-Credentials", "true")
         _setdefault(
@@ -252,5 +249,3 @@ def setup_flask_ssl(flask_app, flask_config):
         )
 
     flask_config.ssl_context = None
-
-

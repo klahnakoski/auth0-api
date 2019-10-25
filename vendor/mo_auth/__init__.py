@@ -8,8 +8,6 @@ from pyLibrary.env import http
 from vendor.mo_logs import Log
 
 DEBUG = False
-SESSION_STAY_ALIVE= 60 * 60
-SESSION_MAX_LENGTH = 24*60*60
 
 
 def get_token_auth_header():
@@ -36,7 +34,6 @@ def requires_scope(required_scope):
 
 
 class Authenticator(object):
-
     def __init__(self, auth0, permissions):
         if not auth0.domain:
             Log.error("expecting auth0 configuration")
@@ -47,12 +44,15 @@ class Authenticator(object):
         """
         USE THIS TO MARKUP ENDPOINTS WITH AUTHENTICATION
         """
+
         def output(f):
             @decorate(f)
             def verify(*args, **kwargs):
                 self.authorize_user()
                 return f(*args, **kwargs)
+
             return verify
+
         return output
 
     def markup_user(self):
@@ -62,7 +62,7 @@ class Authenticator(object):
     def verify_opaque_token(self, token):
         # Opaque Access Token
         url = "https://" + self.auth0.domain + "/userinfo"
-        response = http.get_json(url, headers={"Authorization": 'Bearer ' + token})
+        response = http.get_json(url, headers={"Authorization": "Bearer " + token})
         DEBUG and Log.note("content: {{body|json}}", body=response)
         return response
 
@@ -84,13 +84,17 @@ class Authenticator(object):
                 key,
                 algorithms=algorithm,
                 audience=self.auth0.api.identifier,
-                issuer="https://" + self.auth0.domain + "/"
+                issuer="https://" + self.auth0.domain + "/",
             )
             _request_ctx_stack.top.current_user = payload
         except jwt.ExpiredSignatureError as e:
             Log.error("Token has expired", code=403, cause=e)
         except jwt.JWTClaimsError as e:
-            Log.error("Incorrect claims, please check the audience and issuer", code=403, cause=e)
+            Log.error(
+                "Incorrect claims, please check the audience and issuer",
+                code=403,
+                cause=e,
+            )
         except Exception as e:
             Log.error("Problem parsing", cause=e)
 
@@ -99,33 +103,24 @@ class Authenticator(object):
         now = Date.now().unix
         try:
             user = session.get("user")
-            if user:
-                # EXISTING SESSION
-                last_used = session["last_used"]
-                expiry = session["expiry"]
-                if expiry < now or last_used+SESSION_STAY_ALIVE < now:
-                    user = None
-
             if not user:
                 # NEW USER
                 access_token = get_token_auth_header()
                 user_details = self.verify_opaque_token(access_token)
-                session["user"] = unwrap(self.permissions.get_or_create_user(user_details))
+                session["user"] = unwrap(
+                    self.permissions.get_or_create_user(user_details)
+                )
                 session["last_used"] = now
-                session["expiry"] = now + SESSION_MAX_LENGTH
 
                 self.markup_user()
             else:
                 # IS THIS A REVISITING USER
-                session["last_used"] = now
+                session["last_used"] = Date.now().unix
 
             # HOW DOES A LONG RUNNING AUTOMATION CONFIRM?
             # HOW DOES AUTOMATED SESSION WORK?
             # ENSURE WE CAN LOGOUT
 
         except Exception as e:
-            session["user"] = None
-            session["last_used"] = None
-            session["expiry"] = None
+            session.clear()
             Log.error("failure to authorize", cause=e)
-
