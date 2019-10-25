@@ -122,5 +122,6 @@ class Authenticator(object):
             # ENSURE WE CAN LOGOUT
 
         except Exception as e:
-            session.clear()
+            session["user"] = None
+            session["last_used"] = None
             Log.error("failure to authorize", cause=e)

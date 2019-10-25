@@ -9,11 +9,11 @@
 		"load_dotenv": false
 	},
 	"session": {
-		"store": {
-			"type": "sqlite",
-			"table": "sessions",
+		"db": {
 			"filename": "sessions.sqlite"
 		},
+		"table": "sessions",
+		"use_signer": false,
 		"cookie": {
 			"name":"annotation_session",
 			"domain": "dev.localhost",

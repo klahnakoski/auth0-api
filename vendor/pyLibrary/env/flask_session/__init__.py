@@ -3,9 +3,9 @@
 from uuid import uuid4
 
 from flask.sessions import SessionInterface as FlaskSessionInterface
-from itsdangerous import Signer, want_bytes
+from mo_kwargs import override
 
-from mo_dots import Data, wrap, exists
+from mo_dots import Data, wrap, exists, is_data
 from mo_future import first
 from mo_json import json2value, value2json
 from mo_logs import Log
@@ -24,6 +24,16 @@ from pyLibrary.sql.sqlite import (
     quote_value,
 )
 
+DEBUG = True
+
+
+class NoSigner(object):
+    def sign(self, value):
+        return value
+
+    def unsign(self, value):
+        return value
+
 
 class SqliteSessionInterface(FlaskSessionInterface):
     """STORE SESSION DATA IN SQLITE
@@ -33,11 +43,22 @@ class SqliteSessionInterface(FlaskSessionInterface):
     :param use_signer: Whether to sign the session id cookie or not.
     :param permanent: Whether to use permanent session or not.
     """
-
-    def __init__(self, db, table, use_signer=False):
-        self.db = db
+    @override
+    def __init__(self, flask_app, db, cookie, table="sessions", use_signer=False):
+        if is_data(db):
+            self.db = Sqlite(db)
+        else:
+            self.db = db
         self.table = table
-        self.use_signer = use_signer
+        self.cookie = cookie
+        if use_signer:
+            if not flask_app.secret_key:
+                Log.error("Expecting flask secret key")
+            from itsdangerous import Signer
+            self.signer = Signer(flask_app.secret_key, salt="flask-session", key_derivation="hmac")
+        else:
+            self.signer = NoSigner()
+
         if not self.db.about(self.table):
             self.setup()
 
@@ -61,11 +82,6 @@ class SqliteSessionInterface(FlaskSessionInterface):
     def _generate_sid(self):
         return str(uuid4())
 
-    def _get_signer(self, app):
-        if not app.secret_key:
-            return None
-        return Signer(app.secret_key, salt="flask-session", key_derivation="hmac")
-
     def setup(self):
         with self.db.transaction() as t:
             t.execute(
@@ -79,32 +95,27 @@ class SqliteSessionInterface(FlaskSessionInterface):
     def open_session(self, app, request):
         now = Date.now().unix
         session_id = request.cookies.get(app.session_cookie_name)
-        Log.note("got session_id {{session|quote}}", session=session_id)
+        DEBUG and Log.note("got session_id {{session|quote}}", session=session_id)
         if not session_id:
             session = Data(session_id=self._generate_sid(), permanent=True)
-            Log.note("return session {{session}}", session=session)
+            DEBUG and Log.note("return session {{session}}", session=session)
             return session
-        if self.use_signer:
-            signer = self._get_signer(app)
-            if signer is None:
-                Log.error("Expecting a signer")
-            sid_as_bytes = signer.unsign(session_id)
-            session_id = sid_as_bytes.decode("utf8")
+        session_id = self.signer.unsign(session_id.encode('utf8')).decode('utf8')
 
         result = self.db.query(
             sql_query({"from": self.table, "where": {"eq": {"session_id": session_id}}})
         )
         saved_record = first(Data(zip(result.header, r)) for r in result.data)
         if not saved_record:
-            Log.note("Did not find session in db {{session}}", session=session_id)
+            DEBUG and Log.note("Did not find session in db {{session}}", session=session_id)
             return Data(session_id=session_id, permanent=True)
 
         if saved_record.expiry <= now:
             session = Data(session_id=self._generate_sid(), permanent=True)
-            Log.note("return session {{session}}", session=session)
+            DEBUG and Log.note("return session {{session}}", session=session)
             return session
 
-        Log.note("record from db {{session}}", session=saved_record)
+        DEBUG and Log.note("record from db {{session}}", session=saved_record)
         session = json2value(saved_record.data)
         return session
 
@@ -114,7 +125,7 @@ class SqliteSessionInterface(FlaskSessionInterface):
             return
         if not session.session_id:
             session.session_id = self._generate_sid()
-        Log.note("save session {{session}}", session=session)
+        DEBUG and Log.note("save session {{session}}", session=session)
 
         session_id = session.session_id
         result = self.db.query(
@@ -123,7 +134,7 @@ class SqliteSessionInterface(FlaskSessionInterface):
         saved_record = first(Data(zip(result.header, r)) for r in result.data)
         expires = self.get_expiration_time(app, session)
         if saved_record:
-            Log.note("found session {{session}}", session=saved_record)
+            DEBUG and Log.note("found session {{session}}", session=saved_record)
 
             saved_record.data = value2json(session)
             saved_record.expiry = parse(expires).unix
@@ -142,14 +153,13 @@ class SqliteSessionInterface(FlaskSessionInterface):
                 "data": value2json(session),
                 "expiry": parse(expires).unix,
             }
-            Log.note("new record for db {{session}}", session=new_record)
+            DEBUG and Log.note("new record for db {{session}}", session=new_record)
             with self.db.transaction() as t:
                 t.execute(sql_insert(self.table, new_record))
 
-        if self.use_signer:
-            session_id = self._get_signer(app).sign(want_bytes(session_id))
+        session_id = self.signer.sign(session_id.encode('utf8')).decode('utf8')
 
-        Log.note("transmite cookie {{session}}", session=session_id)
+        DEBUG and Log.note("transmit cookie {{session}}", session=session_id)
         response.set_cookie(
             app.session_cookie_name,
             session_id,
@@ -169,22 +179,13 @@ def setup_flask_session(flask_app, session_config):
     :return:
     """
     session_config = wrap(session_config)
-    filename = session_config.store.filename
-    Log.note("flask.session using {{file}}", file=filename)
-
-    # INJECT CONFIG
+    # INJECT CONFIG INTO FLASK VARIABLES
     for name, path in SESSION_VARIABLES.items():
         value = session_config[path]
         if exists(value):
             flask_app.config[name] = value
 
-    from pyLibrary.env.flask_session import SqliteSessionInterface
-
-    flask_app.session_interface = SqliteSessionInterface(
-        db=Sqlite(filename),
-        table=session_config.store.table,
-        use_signer=flask_app.config.get("SESSION_USE_SIGNER"),
-    )
+    flask_app.session_interface = SqliteSessionInterface(flask_app, kwargs=session_config)
 
 
 # SEE https://pythonhosted.org/Flask-Session/
@@ -194,6 +195,5 @@ SESSION_VARIABLES = {
     "SESSION_COOKIE_PATH": "cookie.path",
     "SESSION_COOKIE_HTTPONLY": "cookie.httponly",
     "SESSION_COOKIE_SECURE": "cookie.secure",
-    "PERMANENT SESSION_LIFETIME": "cookie.lifetime",
-    "SESSION_SQLITE_TABLE": "store.table",
+    "PERMANENT SESSION_LIFETIME": "cookie.lifetime"
 }
