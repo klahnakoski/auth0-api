@@ -7,7 +7,7 @@ from mo_times import Date
 from pyLibrary.env import http
 from vendor.mo_logs import Log
 
-DEBUG = True
+DEBUG = False
 SESSION_STAY_ALIVE= 60 * 60
 SESSION_MAX_LENGTH = 24*60*60
 

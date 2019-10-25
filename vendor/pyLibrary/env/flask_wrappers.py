@@ -13,9 +13,8 @@ from ssl import PROTOCOL_SSLv23, SSLContext
 
 import flask
 from flask import Response
-from pyLibrary.sql.sqlite import Sqlite
 
-from mo_dots import coalesce, is_data, missing, wrap, exists
+from mo_dots import coalesce, is_data
 from mo_files import File, TempFile
 from mo_future import text_type
 from mo_json import value2json
@@ -60,7 +59,18 @@ def cors_wrapper(func):
     def output(*args, **kwargs):
         response = func(*args, **kwargs)
         headers = response.headers
-        _setdefault(headers, "Access-Control-Allow-Origin", "*")
+
+        # WATCH OUT FOR THE RUBE GOLDBERG LOGIC!
+        # https://fetch.spec.whatwg.org/#cors-protocol-and-credentials
+        _setdefault(
+            headers,
+            "Access-Control-Allow-Origin",
+            coalesce(
+                flask.request.headers.get("Origin"),
+                "*"
+            )
+        )
+        _setdefault(headers, "Access-Control-Allow-Credentials", "true")
         _setdefault(
             headers,
             "Access-Control-Allow-Headers",
@@ -244,36 +254,3 @@ def setup_flask_ssl(flask_app, flask_config):
     flask_config.ssl_context = None
 
 
-# SEE https://pythonhosted.org/Flask-Session/
-SESSION_VARIABLES = {
-    "SESSION_COOKIE_NAME": "cookie.name",
-    "SESSION_COOKIE_DOMAIN": "cookie.domain",
-    "SESSION_COOKIE_PATH": "cookie.path",
-    "SESSION_COOKIE_HTTPONLY": "cookie.httponly",
-    "SESSION_COOKIE_SECURE": "cookie.secure",
-    "PERMANENT SESSION_LIFETIME": "cookie.lifetime",
-    "SESSION_SQLITE_TABLE": "store.table",
-}
-
-
-def setup_flask_session(flask_app, session_config):
-    """
-    :param flask_app:
-    :param session_config:
-    :return:
-    """
-    session_config = wrap(session_config)
-
-    filename = session_config.store.filename
-    flask_app.config["SESSION_SQLITE"] = Sqlite(filename)
-    Log.note("flask.session using {{file}}", file=filename)
-
-    # INJECT CONFIG
-    for name, path in SESSION_VARIABLES.items():
-        value = session_config[path]
-        if exists(value):
-            flask_app.config[name] = value
-
-    from pyLibrary.env.flask_session import Session
-
-    Session(flask_app)
