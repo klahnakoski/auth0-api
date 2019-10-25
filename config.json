@@ -17,6 +17,7 @@
 		"cookie": {
 			"name":"annotation_session",
 			"domain": "dev.localhost",
+			"path": "/",
 			"secure": false,
 			"lifetime": 31536000,
 			"httponly": false

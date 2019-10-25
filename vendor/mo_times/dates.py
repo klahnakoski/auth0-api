@@ -33,6 +33,7 @@ except Exception:
     pass
 
 ISO8601 = '%Y-%m-%dT%H:%M:%SZ'
+RFC1123 = '%a, %d %b %Y %H:%M:%S GMT'
 
 
 class Date(object):

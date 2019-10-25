@@ -1,11 +1,12 @@
 from flask import Flask, jsonify, Response
 
-from mo_auth import Authenticator, requires_scope
+from mo_auth import Authenticator, requires_scope, verify_user
 from mo_auth.flask_session import setup_flask_session
 from mo_auth.permissions import Permissions
 from mo_dots import coalesce
 from mo_json import value2json
 from mo_logs import startup, constants, Except
+from mo_logs.strings import expand_template
 from mo_threads.threads import register_thread
 from pyLibrary.env.flask_wrappers import cors_wrapper, setup_flask_ssl
 from pyLibrary.sql.sqlite import Sqlite
@@ -31,7 +32,6 @@ def nothing(*args, **kwargs):
     return Response("", status=200)
 
 
-# Controllers API
 @APP.route("/api/public")
 @register_thread
 @cors_wrapper
@@ -44,23 +44,25 @@ def public():
     return jsonify(message=response)
 
 
-config = startup.read_settings()
-constants.set(config.constants)
-Log.start(config.debug)
-
-perm = Permissions(Sqlite(config.permissions.store))
-auth = Authenticator(config.auth0, perm)
+@APP.route("/authorize")
+@register_thread
+@cors_wrapper
+def authorize():
+    return auth.authorize()
 
 
 @APP.route("/api/private", methods=["GET", "POST"])
 @register_thread
 @cors_wrapper
-@auth.requires_auth()
-def private():
+@verify_user
+def private(user):
     """A valid access token is required to access this route
     """
     response = (
-        "Hello from a private endpoint! You need to be authenticated to see this."
+        expand_template(
+            "Hello {{user}} from a private endpoint! You need to be authenticated to see this.",
+            {"user": user}
+        )
     )
     return jsonify(message=response)
 
@@ -68,8 +70,8 @@ def private():
 @APP.route("/api/private-scoped")
 @register_thread
 @cors_wrapper
-@auth.requires_auth()
-def private_scoped():
+@verify_user
+def private_scoped(user):
     """A valid access token and an appropriate scope are required to access this route
     """
     if requires_scope(config.auth0.scope):
@@ -78,7 +80,14 @@ def private_scoped():
     Log.error("You don't have access to {{scope}}", scope=config.auth0.scope, code=403)
 
 
+config = startup.read_settings()
+constants.set(config.constants)
+Log.start(config.debug)
+
+session_manager = setup_flask_session(APP, config.session)
+perm = Permissions(Sqlite(config.permissions.store))
+auth = Authenticator(config.auth0, perm, session_manager)
+
 Log.note("start servers")
 setup_flask_ssl(APP, config.flask)
-setup_flask_session(APP, config.session)
 APP.run(**config.flask)

@@ -1,8 +1,10 @@
-from flask import _request_ctx_stack, request, session
+from flask import _request_ctx_stack, request, session, Response
 from jose import jwt
 
-from mo_dots import wrap, unwrap
+from mo_auth import flask_session
+from mo_dots import wrap
 from mo_future import decorate, first
+from mo_json import value2json
 from mo_times import Date
 from pyLibrary.env import http
 from vendor.mo_logs import Log
@@ -34,11 +36,12 @@ def requires_scope(required_scope):
 
 
 class Authenticator(object):
-    def __init__(self, auth0, permissions):
+    def __init__(self, auth0, permissions, session_manager):
         if not auth0.domain:
             Log.error("expecting auth0 configuration")
         self.auth0 = auth0
         self.permissions = permissions
+        self.session_manager = session_manager
 
     def requires_auth(self):
         """
@@ -98,41 +101,42 @@ class Authenticator(object):
         except Exception as e:
             Log.error("Problem parsing", cause=e)
 
-    def authorize_user(self):
-        # IS THIS A NEW SESSION
+    def authorize(self):
+        """
+        EXPECT AN ACCESS TOKEN, RETURN A SESSION TOKEN
+        """
         now = Date.now().unix
         try:
-            user = session.get("user")
-            if not user:
-                # NEW USER
-                try:
-                    access_token = get_token_auth_header()
-                except Exception as e:
-                    raise Log.error(
-                        (
-                            "Expecting one of:\n"
-                            + "    Authorization = Bearer <access_token>\n"
-                            + "    Cookie: {{name}}=<session_token>\n"
-                        ),
-                        name="<cookie_name>",
-                    )
+            access_token = get_token_auth_header()
+            user_details = self.verify_opaque_token(access_token)
 
-                user_details = self.verify_opaque_token(access_token)
-                session["user"] = unwrap(
-                    self.permissions.get_or_create_user(user_details)
-                )
-                session["last_used"] = now
+            # ADD TO SESSION
+            self.session_manager.setup_session(session)
+            session.user = self.permissions.get_or_create_user(user_details)
+            session.last_used = now
 
-                self.markup_user()
-            else:
-                # IS THIS A REVISITING USER
-                session["last_used"] = Date.now().unix
+            self.markup_user()
 
-            # HOW DOES A LONG RUNNING AUTOMATION CONFIRM?
-            # HOW DOES AUTOMATED SESSION WORK?
-            # ENSURE WE CAN LOGOUT
-
+            return Response(value2json(self.session_manager.make_cookie(session)), status=200)
         except Exception as e:
             session["user"] = None
             session["last_used"] = None
             Log.error("failure to authorize", cause=e)
+
+
+def verify_user(func):
+    """
+    VERIFY A user EXISTS IN THE SESSION, PASS IT TO func
+    """
+    @decorate(func)
+    def output(*args, **kwargs):
+        # IS THIS A NEW SESSION
+        now = Date.now().unix
+        user = session.get("user")
+        if not user:
+            Log.error("must authorize first")
+
+        session["last_used"] = now
+        return func(*args, user=user, **kwargs)
+
+    return output

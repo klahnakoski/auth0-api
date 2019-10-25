@@ -15,7 +15,7 @@ import flask
 from flask import Response
 
 from mo_dots import coalesce, is_data
-from mo_files import File, TempFile
+from mo_files import File, TempFile, URL
 from mo_future import text_type
 from mo_json import value2json
 from mo_logs import Log
@@ -62,11 +62,14 @@ def cors_wrapper(func):
 
         # WATCH OUT FOR THE RUBE GOLDBERG LOGIC!
         # https://fetch.spec.whatwg.org/#cors-protocol-and-credentials
-        _setdefault(
-            headers,
-            "Access-Control-Allow-Origin",
-            coalesce(flask.request.headers.get("Origin"), "*"),
-        )
+
+        origin = URL(flask.request.headers.get("Origin"))
+        if origin.host:
+            allow_origin = str(origin)
+            # allow_origin = origin.scheme + "://" + origin.host
+        else:
+            allow_origin = "*"
+        _setdefault(headers, "Access-Control-Allow-Origin", allow_origin)
         _setdefault(headers, "Access-Control-Allow-Credentials", "true")
         _setdefault(
             headers,
