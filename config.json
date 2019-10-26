@@ -19,7 +19,8 @@
 			"domain": "dev.localhost",
 			"path": "/",
 			"secure": false,
-			"lifetime": 31536000,
+			"inactive_lifetime": "hour",
+			"max_lifetime": "month",
 			"httponly": false
 		}
 	},
@@ -34,7 +35,12 @@
 	"auth0": {
 		"domain": "dev-8821kz09.auth0.com",
 		"api.identifier": "https://locahost/query",
-		"scope": "query:send"
+		"scope": "query:send",
+		"endpoints": {
+			"login": "authorize",
+			"logout": "logout",
+			"keep_alive": "ping"
+		}
 	},
 	"debug": {
 		"trace": true,

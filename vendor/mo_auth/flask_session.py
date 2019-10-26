@@ -4,7 +4,7 @@ from uuid import uuid4
 
 from flask.sessions import SessionInterface as FlaskSessionInterface
 
-from mo_dots import Data, wrap, exists, is_data
+from mo_dots import Data, wrap, exists, is_data, Null
 from mo_future import first
 from mo_json import json2value, value2json
 from mo_kwargs import override
@@ -33,7 +33,6 @@ def generate_sid():
     return str(uuid4())
 
 
-
 class SqliteSessionInterface(FlaskSessionInterface):
     """STORE SESSION DATA IN SQLITE
 
@@ -43,13 +42,15 @@ class SqliteSessionInterface(FlaskSessionInterface):
     """
 
     @override
-    def __init__(self, flask_app, db, cookie, table="sessions", use_signer=False):
+    def __init__(self, flask_app, db, cookie, table="sessions"):
         if is_data(db):
             self.db = Sqlite(db)
         else:
             self.db = db
         self.table = table
         self.cookie = cookie
+        self.cookie.max_lifetime = parse(self.cookie.max_lifetime)
+        self.cookie.inactive_lifetime = parse(self.cookie.inactive_lifetime)
 
         if not self.db.about(self.table):
             self.setup()
@@ -57,7 +58,7 @@ class SqliteSessionInterface(FlaskSessionInterface):
     def setup_session(self, session):
         session.session_id = generate_sid()
         session.permanent = True
-        session.expiry = Date.now().unix + self.cookie.lifetime
+        session.expires = Date.now() + self.cookie.max_lifetime
 
     def monitor(self, please_stop):
         while not please_stop:
@@ -68,10 +69,10 @@ class SqliteSessionInterface(FlaskSessionInterface):
                         "DELETE FROM "
                         + quote_column(self.table)
                         + SQL_WHERE
-                        + sql_lt(expiry=Date.now().unix)
+                        + sql_lt(expires=Date.now().unix)
                     )
             except Exception as e:
-                Log.warning("problem with session expiry", cause=e)
+                Log.warning("problem with session expires", cause=e)
             (please_stop | Till(seconds=60)).wait()
 
     def setup(self):
@@ -82,19 +83,25 @@ class SqliteSessionInterface(FlaskSessionInterface):
                     {
                         "session_id": "TEXT PRIMARY KEY",
                         "data": "TEXT",
-                        "expiry": "NUMBER",
+                        "last_used": "NUMBER",
+                        "expires": "NUMBER",
                     },
                 )
             )
 
     def make_cookie(self, session):
+        now = Date.now()
+        expires = (now + self.cookie.max_lifetime).format(RFC1123)
+        session.expires = expires
         return {
-            self.cookie.name: session.session_id,
-            "Domain": self.cookie.domain,
-            "Path": self.cookie.path,
-            "Secure": self.cookie.secure,
-            "HttpOnly": self.cookie.httponly,
-            "Expires": parse(session.expiry).format(RFC1123)
+            "name": self.cookie.name,
+            "value": session.session_id,
+            "domain": self.cookie.domain,
+            "path": self.cookie.path,
+            "secure": self.cookie.secure,
+            "httponly": self.cookie.httponly,
+            "expires": expires,
+            "inactive_lifetime": self.cookie.inactive_lifetime.seconds
         }
 
     @register_thread
@@ -109,11 +116,12 @@ class SqliteSessionInterface(FlaskSessionInterface):
             sql_query({"from": self.table, "where": {"eq": {"session_id": session_id}}})
         )
         saved_record = first(Data(zip(result.header, r)) for r in result.data)
-        if not saved_record or saved_record.expiry <= now:
+        if not saved_record or saved_record.expires <= now:
             return Data()
+        session = json2value(saved_record.data)
+
 
         DEBUG and Log.note("record from db {{session}}", session=saved_record)
-        session = json2value(saved_record.data)
         return session
 
     @register_thread
@@ -125,17 +133,19 @@ class SqliteSessionInterface(FlaskSessionInterface):
             session.permanent = True
         DEBUG and Log.note("save session {{session}}", session=session)
 
+        now = Date.now()
         session_id = session.session_id
         result = self.db.query(
             sql_query({"from": self.table, "where": {"eq": {"session_id": session_id}}})
         )
         saved_record = first(Data(zip(result.header, r)) for r in result.data)
-        expires = self.get_expiration_time(app, session)
+        expires = min(session.expires, now+self.cookie.inactive_lifetime)
         if saved_record:
             DEBUG and Log.note("found session {{session}}", session=saved_record)
 
             saved_record.data = value2json(session)
-            saved_record.expiry = parse(expires).unix
+            saved_record.expires = expires
+            saved_record.last_used = now
             with self.db.transaction() as t:
                 t.execute(
                     "UPDATE "
@@ -149,7 +159,8 @@ class SqliteSessionInterface(FlaskSessionInterface):
             new_record = {
                 "session_id": session_id,
                 "data": value2json(session),
-                "expiry": parse(expires).unix,
+                "expires": expires,
+                "last_used": now
             }
             DEBUG and Log.note("new record for db {{session}}", session=new_record)
             with self.db.transaction() as t:
@@ -183,5 +194,5 @@ SESSION_VARIABLES = {
     "SESSION_COOKIE_PATH": "cookie.path",
     "SESSION_COOKIE_HTTPONLY": "cookie.httponly",
     "SESSION_COOKIE_SECURE": "cookie.secure",
-    "PERMANENT SESSION_LIFETIME": "cookie.lifetime",
+    "PERMANENT SESSION_LIFETIME": "cookie.max_lifetime",
 }
