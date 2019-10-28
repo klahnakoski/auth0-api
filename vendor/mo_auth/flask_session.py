@@ -170,7 +170,7 @@ class SqliteSessionInterface(FlaskSessionInterface):
 def setup_flask_session(flask_app, session_config):
     """
     SETUP FlASK SESSION MANAGEMENT
-    :param flask_app: USED TO PULL THE flask_app.config
+    :param flask_app: USED TO SET THE flask_app.config
     :param session_config: CONFIGURATION
     :return: THE SESSION MANAGER
     """
