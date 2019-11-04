@@ -6,7 +6,7 @@ from mo_future import decorate, first
 from mo_json import value2json
 from mo_times import Date
 from pyLibrary.env import http
-from pyLibrary.env.flask_wrappers import cors_wrapper
+from pyLibrary.env.flask_wrappers import cors_wrapper, options, add_flask_rule
 from vendor.mo_logs import Log
 
 DEBUG = False
@@ -46,9 +46,9 @@ class Authenticator(object):
         if not endpoints.login or not endpoints.logout or not endpoints.keep_alive:
             Log.error("Expecting paths for login, logout and keep_alive")
 
-        _attach(flask_app, endpoints.login, self.login)
-        _attach(flask_app, endpoints.logout, self.logout)
-        _attach(flask_app, endpoints.keep_alive, self.keep_alive)
+        add_flask_rule(flask_app, endpoints.login, self.login)
+        add_flask_rule(flask_app, endpoints.logout, self.logout)
+        add_flask_rule(flask_app, endpoints.keep_alive, self.keep_alive)
 
     def markup_user(self):
         # WHAT IS THE EMPLOY STATUS OF THE USER?
@@ -126,6 +126,8 @@ class Authenticator(object):
     @register_thread
     @cors_wrapper
     def keep_alive(self, path=None):
+        if not session.session_id:
+            Log.error("Expecting a sesison token")
         now = Date.now().unix
         session.last_used = now
         return Response(status=200)
@@ -133,6 +135,8 @@ class Authenticator(object):
     @register_thread
     @cors_wrapper
     def logout(self, path=None):
+        if not session.session_id:
+            Log.error("Expecting a sesison token")
         session.user = None
         session.last_used = None
         return Response(status=200)
@@ -155,32 +159,5 @@ def verify_user(func):
         return func(*args, user=user, **kwargs)
 
     return output
-
-
-def _attach(flask_app, path, method):
-    """
-    ATTACH method TO path IN flask_app
-    """
-    flask_app.add_url_rule(
-        "/" + path.strip("/"),
-        None,
-        method,
-        defaults={"path": ""},
-        methods=["GET", "POST"],
-        )
-    flask_app.add_url_rule(
-        "/" + path.strip("/") + "/",
-        None,
-        method,
-        defaults={"path": ""},
-        methods=["GET", "POST"],
-        )
-    flask_app.add_url_rule(
-        "/" + path.strip("/") + "/<path:hash>",
-        None,
-        method,
-        defaults={"path": ""},
-        methods=["GET", "POST"],
-        )
 
 

@@ -169,12 +169,13 @@ SQL_SPACE = SQL(" ")
 SQL_OP = SQL("(")
 SQL_CP = SQL(")")
 SQL_EQ = SQL(" = ")
+SQL_IN = SQL(" IN  ")
 SQL_LT = SQL(" < ")
 SQL_DOT = SQL(".")
 
 
 class DB(object):
-    def quote_column(self, column_name, table=None):
+    def quote_column(self, *path):
         raise NotImplementedError()
 
     def db_type_to_json_type(self, type):

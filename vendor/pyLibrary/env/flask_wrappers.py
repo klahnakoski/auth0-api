@@ -13,10 +13,11 @@ from ssl import PROTOCOL_SSLv23, SSLContext
 
 import flask
 from flask import Response
+from mo_threads.threads import register_thread
 
 from mo_dots import coalesce, is_data
 from mo_files import File, TempFile, URL
-from mo_future import text_type
+from mo_future import text_type, decorate
 from mo_json import value2json
 from mo_logs import Log
 from mo_logs.strings import unicode2utf8
@@ -252,3 +253,56 @@ def setup_flask_ssl(flask_app, flask_config):
         )
 
     flask_config.ssl_context = None
+
+
+def limit_body(size):
+    def decorator(func):
+        @decorate(func)
+        def output(*args, **kwargs):
+            if flask.request.headers.get("content-length", "") in ["", "0"]:
+                Log.error("Expected known Content-Length")
+            elif int(flask.request.headers["content-length"]) > size:
+                Log.error("Query is too large to parse")
+            return func(*args, **kwargs)
+        return output
+    return decorator
+
+
+@register_thread
+@cors_wrapper
+def options(*args, **kwargs):
+    """
+    USE THIS FOR THE OPTIONS AND HEAD REQUEST TYPES
+    """
+    return Response("", status=200)
+
+
+def add_flask_rule(flask_app, path, func):
+    flask_app.add_url_rule(
+        "/" + path.strip("/"),
+        None,
+        options,
+        methods=["OPTIONS", "HEAD"],
+        )
+    flask_app.add_url_rule(
+        "/" + path.strip("/") + "/",
+        None,
+        options,
+        methods=["OPTIONS", "HEAD"],
+        )
+
+    flask_app.add_url_rule(
+        "/" + path.strip("/"),
+        None,
+        func,
+        methods=["GET", "POST"],
+        provide_automatic_options=False
+        )
+    flask_app.add_url_rule(
+        "/" + path.strip("/") + "/",
+        None,
+        func,
+        methods=["GET", "POST"],
+        provide_automatic_options=False
+        )
+

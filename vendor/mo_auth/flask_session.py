@@ -1,14 +1,14 @@
 # encoding: utf-8
 #
-from uuid import uuid4
 
 from flask.sessions import SessionInterface as FlaskSessionInterface
 
-from mo_dots import Data, wrap, exists, is_data, Null
+from mo_dots import Data, wrap, exists, is_data
 from mo_future import first
 from mo_json import json2value, value2json
 from mo_kwargs import override
 from mo_logs import Log
+from mo_math.randoms import Random
 from mo_threads import Till
 from mo_threads.threads import register_thread
 from mo_times import Date
@@ -21,7 +21,8 @@ from pyLibrary.sql.sqlite import (
     sql_query,
     sql_insert,
     Sqlite,
-    sql_lt)
+    sql_lt,
+)
 
 DEBUG = True
 
@@ -30,7 +31,7 @@ def generate_sid():
     """
     GENERATE A UNIQUE SESSION ID
     """
-    return str(uuid4())
+    return Random.base64(40)
 
 
 class SqliteSessionInterface(FlaskSessionInterface):
@@ -101,7 +102,7 @@ class SqliteSessionInterface(FlaskSessionInterface):
             "secure": self.cookie.secure,
             "httponly": self.cookie.httponly,
             "expires": expires,
-            "inactive_lifetime": self.cookie.inactive_lifetime.seconds
+            "inactive_lifetime": self.cookie.inactive_lifetime.seconds,
         }
 
     @register_thread
@@ -119,7 +120,6 @@ class SqliteSessionInterface(FlaskSessionInterface):
         if not saved_record or saved_record.expires <= now:
             return Data()
         session = json2value(saved_record.data)
-
 
         DEBUG and Log.note("record from db {{session}}", session=saved_record)
         return session
@@ -139,7 +139,7 @@ class SqliteSessionInterface(FlaskSessionInterface):
             sql_query({"from": self.table, "where": {"eq": {"session_id": session_id}}})
         )
         saved_record = first(Data(zip(result.header, r)) for r in result.data)
-        expires = min(session.expires, now+self.cookie.inactive_lifetime)
+        expires = min(session.expires, now + self.cookie.inactive_lifetime)
         if saved_record:
             DEBUG and Log.note("found session {{session}}", session=saved_record)
 
@@ -160,7 +160,7 @@ class SqliteSessionInterface(FlaskSessionInterface):
                 "session_id": session_id,
                 "data": value2json(session),
                 "expires": expires,
-                "last_used": now
+                "last_used": now,
             }
             DEBUG and Log.note("new record for db {{session}}", session=new_record)
             with self.db.transaction() as t:

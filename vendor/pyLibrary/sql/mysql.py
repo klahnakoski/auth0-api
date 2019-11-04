@@ -28,7 +28,7 @@ from mo_math import is_number
 from mo_times import Date
 from pyLibrary.sql import SQL, SQL_AND, SQL_ASC, SQL_DESC, SQL_FROM, SQL_IS_NULL, SQL_LEFT_JOIN, SQL_LIMIT, SQL_NULL, \
     SQL_ONE, SQL_SELECT, SQL_TRUE, SQL_WHERE, sql_alias, sql_iso, sql_list, SQL_INSERT, SQL_VALUES, ConcatSQL, SQL_EQ, \
-    SQL_UPDATE, SQL_SET
+    SQL_UPDATE, SQL_SET, _Join, SQL_DOT
 from pyLibrary.sql.sqlite import join_column
 
 DEBUG = False
@@ -577,23 +577,10 @@ def quote_value(value):
         Log.error("problem quoting SQL {{value}}", value=repr(value), cause=e)
 
 
-def quote_column(column_name, table=None):
-    if column_name == None:
+def quote_column(*path):
+    if not path:
         Log.error("missing column_name")
-    elif is_text(column_name):
-        if table:
-            return join_column(table, column_name)
-        else:
-            return SQL("`" + '`.`'.join(split_field(column_name)) + "`")  # MYSQL QUOTE OF COLUMN NAMES
-    elif is_binary(column_name):
-        return quote_column(column_name.decode('utf8'), table)
-    elif is_list(column_name):
-        if table:
-            return sql_list(join_column(table, c) for c in column_name)
-        return sql_list(quote_column(c) for c in column_name)
-    else:
-        # ASSUME {"name":name, "value":value} FORM
-        return SQL(sql_alias(column_name.value, quote_column(column_name.name)))
+    return _Join(SQL_DOT, map(quote_column, path))
 
 
 def quote_sql(value, param=None):
