@@ -57,6 +57,7 @@ def cors_wrapper(func):
             return
         obj.setdefault(key, value)
 
+    @decorate(func)
     def output(*args, **kwargs):
         response = func(*args, **kwargs)
         headers = response.headers

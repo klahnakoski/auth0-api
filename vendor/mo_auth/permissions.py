@@ -1,9 +1,6 @@
-from mo_kwargs import override
-
 from mo_dots import wrap, Data, listwrap, is_data, FlatList
-
 from mo_future import first
-
+from mo_kwargs import override
 from mo_logs import Log
 from pyLibrary.sql import SQL_UPDATE, SQL_SET
 from pyLibrary.sql.sqlite import sql_query, sql_create, sql_insert, quote_column, sql_eq, Sqlite
