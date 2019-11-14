@@ -3,11 +3,11 @@ from flask import request, session, Response, redirect
 from jose import jwt
 
 from mo_dots import Data, wrap, unwrap
-from mo_files import URL
+from mo_files import URL, mimetype
 from mo_future import decorate, first, text
 from mo_json import value2json, json2value
 from mo_kwargs import override
-from mo_math import base642bytes, bytes2base64URL, rsa_crypto
+from mo_math import base642bytes, bytes2base64URL, rsa_crypto, crypto
 from mo_math.hashes import sha256
 from mo_threads.threads import register_thread
 from mo_times import Date
@@ -147,7 +147,7 @@ class Authenticator(object):
         session.public_key = command.public_key
         rsa_crypto.verify(signed, session.public_key)
 
-        self.session_manager.setup_session(session)
+        self.session_manager.create_session(session)
         session.expires = now + parse("10minute").seconds
         session.state = bytes2base64URL(crypto.bytes(32))
 
@@ -229,7 +229,7 @@ class Authenticator(object):
         REDIRECT BROWSER TO AUTH0 LOGIN
         """
         state = request.args.get("state")
-        self.session_manager.setup_session(session)
+        self.session_manager.create_session(session)
         session.code_verifier = bytes2base64URL(crypto.bytes(32))
         code_challenge = bytes2base64URL(sha256(session.code_verifier.encode("utf8")))
 
@@ -338,7 +338,7 @@ class Authenticator(object):
                 session.scope = access_details["scope"]
 
             # ADD TO SESSION
-            self.session_manager.setup_session(session)
+            self.session_manager.create_session(session)
             user_details = self.verify_opaque_token(access_token)
             session.user = self.permissions.get_or_create_user(user_details)
             session.last_used = now
@@ -346,7 +346,8 @@ class Authenticator(object):
             self.markup_user()
 
             return Response(
-                value2json(self.session_manager.make_cookie(session)), status=200
+                value2json(self.session_manager.cookie_data(session)),
+                status=200
             )
         except Exception as e:
             session.user = None
