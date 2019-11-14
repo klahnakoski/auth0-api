@@ -8,11 +8,12 @@ from mo_future import first
 from mo_json import json2value, value2json
 from mo_kwargs import override
 from mo_logs import Log
+from mo_math import bytes2base64URL, crypto
 from mo_math.randoms import Random
 from mo_threads import Till
 from mo_threads.threads import register_thread, Thread
 from mo_times import Date
-from mo_times.dates import parse, RFC1123
+from mo_times.dates import parse, RFC1123, unix2Date
 from pyLibrary.sql import SQL_WHERE, sql_list, SQL_SET, SQL_UPDATE
 from pyLibrary.sql.sqlite import (
     sql_create,
@@ -31,7 +32,7 @@ def generate_sid():
     """
     GENERATE A UNIQUE SESSION ID
     """
-    return Random.base64(40)
+    return bytes2base64URL(crypto.bytes(32))
 
 
 SINGLTON = None
@@ -212,8 +213,13 @@ class SqliteSessionInterface(FlaskSessionInterface):
             response.set_cookie(
                 app.session_cookie_name,
                 session_id,
-                expires=expires
+                expires=unix2Date(expires).format(RFC1123),
+                domain=self.cookie.domain,
+                path=self.cookie.path,
+                secure=self.cookie.secure,
+                httponly=self.cookie.httponly,
             )
+
 
 def setup_flask_session(flask_app, session_config):
     """
