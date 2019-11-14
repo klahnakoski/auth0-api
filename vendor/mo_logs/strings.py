@@ -533,11 +533,14 @@ def expand_template(template, value):
     :param value: Data HOLDING THE PARAMTER VALUES
     :return: UNICODE STRING WITH VARIABLES EXPANDED
     """
-    value = wrap(value)
-    if is_text(template):
-        return _simple_expand(template, (value,))
+    try:
+        value = wrap(value)
+        if is_text(template):
+            return _simple_expand(template, (value,))
 
-    return _expand(template, (value,))
+        return _expand(template, (value,))
+    except Exception as e:
+        return "FAIL TO EXPAND: " + template
 
 
 def common_prefix(*args):

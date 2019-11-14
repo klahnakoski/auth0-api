@@ -428,6 +428,7 @@ class GetOp(Expression):
         output = self.var.vars()
         for o in self.offsets:
             output |= o.vars()
+        return output
 
     def map(self, map_):
         return self.lang[GetOp([self.var.map(map_)] + [o.map(map_) for o in self.offsets])]
@@ -909,6 +910,8 @@ class TupleOp(Expression):
     def partial_eval(self):
         if all(is_literal(t) for t in self.terms):
             return self.lang[Literal([t.value for t in self.terms])]
+
+        return self
 
 class LeavesOp(Expression):
     date_type = OBJECT
@@ -2570,42 +2573,6 @@ class FindOp(Expression):
             default=self.default.map(map_)
         )
 
-    def missing(self):
-        output = AndOp([
-            self.default.missing(),
-            OrOp([
-                self.value.missing(),
-                self.find.missing(),
-                EqOp([BasicIndexOfOp([
-                    self.value,
-                    self.find,
-                    self.start
-                ]), Literal(-1)])
-            ])
-        ]).partial_eval()
-        return output
-
-    def exists(self):
-        return TRUE
-
-    @simplified
-    def partial_eval(self):
-        index = self.lang[BasicIndexOfOp([
-            self.value,
-            self.find,
-            self.start
-        ])].partial_eval()
-
-        output = self.lang[WhenOp(
-            OrOp([
-                self.value.missing(),
-                self.find.missing(),
-                BasicEqOp([index, Literal(-1)])
-            ]),
-            **{"then": self.default, "else": index}
-        )].partial_eval()
-        return output
-
 
 class SplitOp(Expression):
     has_simple_form = True
@@ -2792,9 +2759,9 @@ class InOp(Expression):
         if superset is NULL:
             return FALSE
         elif is_literal(value) and is_literal(superset):
-            return Literal(self())
+            return self.lang[Literal(self())]
         else:
-            return self
+            return self.lang[InOp([value, superset])]
 
     def __call__(self):
         return self.value() in self.superset()
