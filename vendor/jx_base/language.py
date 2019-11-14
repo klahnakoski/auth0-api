@@ -13,8 +13,8 @@ from copy import copy
 from math import isnan
 
 from mo_dots import Data, data_types, listwrap
-from mo_dots.lists import list_types, is_many
-from mo_future import boolean_type, long, none_type, text_type, transpose
+from mo_dots.lists import list_types
+from mo_future import boolean_type, long, none_type, text, transpose
 from mo_logs import Log
 from mo_times import Date
 
@@ -138,14 +138,12 @@ def is_op(call, op):
 
 
 def is_expression(call):
-    if is_many(call):
-        return False
     try:
         output = getattr(call, ID, None) != None
     except Exception:
         output = False
-    # if output != isinstance(call, Expression):
-    #     Log.error("programmer error")
+    if output != isinstance(call, Expression):
+        Log.error("programmer error")
     return output
 
 
@@ -227,7 +225,7 @@ TYPE_ORDER = {
     float: 1,
     Date: 1,
     long: 1,
-    text_type: 2,
+    text: 2,
     list: 3,
     builtin_tuple: 3,
     dict: 4,

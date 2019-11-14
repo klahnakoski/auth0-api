@@ -15,12 +15,11 @@ import flask
 from flask import Response
 
 from mo_dots import coalesce, is_data
-from mo_files import File, TempFile, URL
-from mo_future import text_type
+from mo_files import File, TempFile, URL, mimetype
+from mo_future import decorate, text
 from mo_json import value2json
 from mo_logs import Log
-from mo_logs.strings import unicode2utf8
-from mo_threads import Thread
+from mo_threads.threads import register_thread
 from pyLibrary.env import git
 from pyLibrary.env.big_data import ibytes2icompressed
 
@@ -56,6 +55,7 @@ def cors_wrapper(func):
             return
         obj.setdefault(key, value)
 
+    @decorate(func)
     def output(*args, **kwargs):
         response = func(*args, **kwargs)
         headers = response.headers
@@ -81,7 +81,7 @@ def cors_wrapper(func):
             "Access-Control-Allow-Methods",
             flask.request.headers.get("Access-Control-Request-Methods"),
         )
-        _setdefault(headers, "Content-Type", "application/json")
+        _setdefault(headers, "Content-Type", mimetype.JSON)
         _setdefault(
             headers,
             "Strict-Transport-Security",
@@ -109,7 +109,7 @@ def dockerflow(flask_app, backend_check):
         @cors_wrapper
         def version():
             return Response(
-                VERSION_JSON, status=200, headers={"Content-Type": "application/json"}
+                VERSION_JSON, status=200, headers={"Content-Type": mimetype.JSON}
             )
 
         @cors_wrapper
@@ -120,9 +120,9 @@ def dockerflow(flask_app, backend_check):
             except Exception as e:
                 Log.warning("heartbeat failure", cause=e)
                 return Response(
-                    unicode2utf8(value2json(e)),
+                    value2json(e).encode('utf8'),
                     status=500,
-                    headers={"Content-Type": "application/json"},
+                    headers={"Content-Type": mimetype.JSON},
                 )
 
         @cors_wrapper
@@ -164,25 +164,25 @@ def add_version(flask_app):
     :return:
     """
     try:
-        version_info = unicode2utf8(
-            value2json(
-                {
-                    "source": "https://github.com/mozilla/ActiveData/tree/"
-                    + git.get_branch(),
-                    # "version": "",
-                    "commit": git.get_revision(),
-                },
-                pretty=True,
-            )
-            + text_type("\n")
-        )
+        rev = coalesce(git.get_revision(), "")
+        branch = "https://github.com/mozilla/ActiveData/tree/" + coalesce(git.get_branch())
+
+        version_info = value2json(
+            {
+                "source": "https://github.com/mozilla/ActiveData/tree/" + rev,
+                "branch": branch,
+                "commit": rev,
+            },
+            pretty=True,
+        ).encode('utf8') + text("\n")
 
         Log.note("Using github version\n{{version}}", version=version_info)
 
+        @register_thread
         @cors_wrapper
         def version():
             return Response(
-                version_info, status=200, headers={"Content-Type": "application/json"}
+                version_info, status=200, headers={"Content-Type": mimetype.JSON}
             )
 
         flask_app.add_url_rule(
@@ -252,3 +252,56 @@ def setup_flask_ssl(flask_app, flask_config):
         )
 
     flask_config.ssl_context = None
+
+
+def limit_body(size):
+    def decorator(func):
+        @decorate(func)
+        def output(*args, **kwargs):
+            if flask.request.headers.get("content-length", "") in ["", "0"]:
+                Log.error("Expected known Content-Length")
+            elif int(flask.request.headers["content-length"]) > size:
+                Log.error("Query is too large to parse")
+            return func(*args, **kwargs)
+        return output
+    return decorator
+
+
+@register_thread
+@cors_wrapper
+def options(*args, **kwargs):
+    """
+    USE THIS FOR THE OPTIONS AND HEAD REQUEST TYPES
+    """
+    return Response("", status=200)
+
+
+def add_flask_rule(flask_app, path, func):
+    flask_app.add_url_rule(
+        "/" + path.strip("/"),
+        None,
+        options,
+        methods=["OPTIONS", "HEAD"],
+        )
+    flask_app.add_url_rule(
+        "/" + path.strip("/") + "/",
+        None,
+        options,
+        methods=["OPTIONS", "HEAD"],
+        )
+
+    flask_app.add_url_rule(
+        "/" + path.strip("/"),
+        None,
+        func,
+        methods=["GET", "POST"],
+        provide_automatic_options=False
+        )
+    flask_app.add_url_rule(
+        "/" + path.strip("/") + "/",
+        None,
+        func,
+        methods=["GET", "POST"],
+        provide_automatic_options=False
+        )
+

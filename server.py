@@ -8,7 +8,7 @@ from mo_json import value2json
 from mo_logs import startup, constants, Except
 from mo_logs.strings import expand_template
 from mo_threads.threads import register_thread
-from pyLibrary.env.flask_wrappers import cors_wrapper, setup_flask_ssl
+from pyLibrary.env.flask_wrappers import cors_wrapper, setup_flask_ssl, add_flask_rule
 from pyLibrary.sql.sqlite import Sqlite
 from vendor.mo_logs import Log
 
@@ -26,14 +26,6 @@ def handle_auth_error(ex):
     return Response(value2json(ex), status=code)
 
 
-@APP.route("/", defaults={"path": ""}, methods=["OPTIONS", "HEAD"])
-@APP.route("/<path:path>", methods=["OPTIONS", "HEAD"])
-@cors_wrapper
-def nothing(*args, **kwargs):
-    return Response("", status=200)
-
-
-@APP.route("/api/public")
 @register_thread
 @cors_wrapper
 def public():
@@ -45,7 +37,6 @@ def public():
     return jsonify(message=response)
 
 
-@APP.route("/api/private", methods=["GET", "POST"])
 @register_thread
 @cors_wrapper
 @verify_user
@@ -59,7 +50,6 @@ def private(user):
     return jsonify(message=response)
 
 
-@APP.route("/api/private-scoped")
 @register_thread
 @cors_wrapper
 @verify_user
@@ -74,6 +64,11 @@ def private_scoped(user):
         )
         return jsonify(message=response)
     Log.error("You don't have access to {{scope}}", scope=config.auth0.scope, code=403)
+
+
+add_flask_rule(APP, "/api/public", public)
+add_flask_rule(APP, "/api/private", private)
+add_flask_rule(APP, "/api/private-scoped", private_scoped)
 
 
 config = startup.read_settings()

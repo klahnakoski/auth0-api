@@ -1,19 +1,19 @@
 # encoding: utf-8
 #
-from uuid import uuid4
 
 from flask.sessions import SessionInterface as FlaskSessionInterface
 
-from mo_dots import Data, wrap, exists, is_data, Null
+from mo_dots import Data, wrap, exists, is_data
 from mo_future import first
 from mo_json import json2value, value2json
 from mo_kwargs import override
 from mo_logs import Log
+from mo_math import bytes2base64URL, crypto
 from mo_threads import Till
-from mo_threads.threads import register_thread
+from mo_threads.threads import register_thread, Thread
 from mo_times import Date
-from mo_times.dates import parse, RFC1123
-from pyLibrary.sql import SQL_WHERE, sql_list, SQL_SET
+from mo_times.dates import parse, RFC1123, unix2Date
+from pyLibrary.sql import SQL_WHERE, sql_list, SQL_SET, SQL_UPDATE
 from pyLibrary.sql.sqlite import (
     sql_create,
     sql_eq,
@@ -21,16 +21,20 @@ from pyLibrary.sql.sqlite import (
     sql_query,
     sql_insert,
     Sqlite,
-    sql_lt)
+    sql_lt,
+)
 
-DEBUG = True
+DEBUG = False
 
 
 def generate_sid():
     """
     GENERATE A UNIQUE SESSION ID
     """
-    return str(uuid4())
+    return bytes2base64URL(crypto.bytes(32))
+
+
+SINGLTON = None
 
 
 class SqliteSessionInterface(FlaskSessionInterface):
@@ -43,6 +47,10 @@ class SqliteSessionInterface(FlaskSessionInterface):
 
     @override
     def __init__(self, flask_app, db, cookie, table="sessions"):
+        global SINGLTON
+        if SINGLTON:
+            Log.error("Can only handle one session manager at a time")
+        SINGLTON = self
         if is_data(db):
             self.db = Sqlite(db)
         else:
@@ -54,11 +62,12 @@ class SqliteSessionInterface(FlaskSessionInterface):
 
         if not self.db.about(self.table):
             self.setup()
+        Thread.run("session monitor", self.monitor)
 
     def setup_session(self, session):
         session.session_id = generate_sid()
         session.permanent = True
-        session.expires = Date.now() + self.cookie.max_lifetime
+        session.expires = (Date.now() + self.cookie.max_lifetime).unix
 
     def monitor(self, please_stop):
         while not please_stop:
@@ -91,8 +100,8 @@ class SqliteSessionInterface(FlaskSessionInterface):
 
     def make_cookie(self, session):
         now = Date.now()
-        expires = (now + self.cookie.max_lifetime).format(RFC1123)
-        session.expires = expires
+        expires = now + self.cookie.max_lifetime
+        session.expires = expires.unix
         return {
             "name": self.cookie.name,
             "value": session.session_id,
@@ -100,18 +109,42 @@ class SqliteSessionInterface(FlaskSessionInterface):
             "path": self.cookie.path,
             "secure": self.cookie.secure,
             "httponly": self.cookie.httponly,
-            "expires": expires,
-            "inactive_lifetime": self.cookie.inactive_lifetime.seconds
+            "expires": expires.format(RFC1123),
+            "inactive_lifetime": self.cookie.inactive_lifetime.seconds,
         }
 
-    @register_thread
-    def open_session(self, app, request):
+    def update_session(self, session_id, props):
+        """
+        UPDATE GIVEN SESSION WITH PROPERTIES
+        :param session_id:
+        :param props:
+        :return:
+        """
         now = Date.now().unix
-        session_id = request.cookies.get(app.session_cookie_name)
-        DEBUG and Log.note("got session_id {{session|quote}}", session=session_id)
-        if not session_id:
-            return Data()
+        session = self.get_session(session_id)
+        for k, v in props.items():
+            session[k] = v
+        session.last_used = now
 
+        record = {
+            "session_id": session_id,
+            "data": value2json(session),
+            "expires": session.expires,
+            "last_used": session.last_used,
+        }
+
+        with self.db.transaction() as t:
+            t.execute(
+                SQL_UPDATE
+                + quote_column(self.table)
+                + SQL_SET
+                + sql_list(sql_eq(**{k: v}) for k, v in record.items())
+                + SQL_WHERE
+                + sql_eq(session_id=session_id)
+            )
+
+    def get_session(self, session_id):
+        now = Date.now().unix
         result = self.db.query(
             sql_query({"from": self.table, "where": {"eq": {"session_id": session_id}}})
         )
@@ -120,9 +153,19 @@ class SqliteSessionInterface(FlaskSessionInterface):
             return Data()
         session = json2value(saved_record.data)
 
-
         DEBUG and Log.note("record from db {{session}}", session=saved_record)
         return session
+
+    @register_thread
+    def open_session(self, app, request):
+        session_id = request.cookies.get(app.session_cookie_name)
+        DEBUG and Log.note("got session_id {{session|quote}}", session=session_id)
+        if not session_id:
+            return Data()
+        return self.get_session(session_id)
+
+    def should_set_cookie(self, app, session):
+        return True
 
     @register_thread
     def save_session(self, app, session, response):
@@ -133,13 +176,13 @@ class SqliteSessionInterface(FlaskSessionInterface):
             session.permanent = True
         DEBUG and Log.note("save session {{session}}", session=session)
 
-        now = Date.now()
+        now = Date.now().unix
         session_id = session.session_id
         result = self.db.query(
             sql_query({"from": self.table, "where": {"eq": {"session_id": session_id}}})
         )
         saved_record = first(Data(zip(result.header, r)) for r in result.data)
-        expires = min(session.expires, now+self.cookie.inactive_lifetime)
+        expires = min(session.expires, now + self.cookie.inactive_lifetime.seconds)
         if saved_record:
             DEBUG and Log.note("found session {{session}}", session=saved_record)
 
@@ -160,11 +203,21 @@ class SqliteSessionInterface(FlaskSessionInterface):
                 "session_id": session_id,
                 "data": value2json(session),
                 "expires": expires,
-                "last_used": now
+                "last_used": now,
             }
             DEBUG and Log.note("new record for db {{session}}", session=new_record)
             with self.db.transaction() as t:
                 t.execute(sql_insert(self.table, new_record))
+
+            response.set_cookie(
+                app.session_cookie_name,
+                session_id,
+                expires=unix2Date(expires).format(RFC1123),
+                domain=self.cookie.domain,
+                path=self.cookie.path,
+                secure=self.cookie.secure,
+                httponly=self.cookie.httponly,
+            )
 
 
 def setup_flask_session(flask_app, session_config):
