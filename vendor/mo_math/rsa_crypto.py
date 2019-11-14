@@ -14,7 +14,7 @@ from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicNumbers
 
-from mo_dots import Data
+from mo_dots import Data, wrap
 from mo_json import value2json, json2value
 from mo_math import bytes2base64, base642bytes, int2base64, base642int
 
@@ -44,18 +44,19 @@ def generate_key(bits=512):
     return public_key, private_key
 
 
-def sign(message, private_key):
+def sign(frum, message, private_key):
     data = value2json(message).encode("utf8")
 
     # SIGN DATA/STRING
     signature = private_key.sign(data=data, padding=PSS, algorithm=SHA256)
 
-    return Data(
-        data=bytes2base64(data),
-        signature=bytes2base64(signature),
-        padding="PSS",
-        algorithm="SHA256"
-    )
+    return wrap({
+        "from": frum,
+        "data": bytes2base64(data),
+        "signature": bytes2base64(signature),
+        "padding": "PSS",
+        "algorithm=": "SHA256"
+    })
 
 
 def verify(signed, public_key):

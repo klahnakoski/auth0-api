@@ -3,11 +3,11 @@ from flask import request, session, Response, redirect
 from jose import jwt
 
 from mo_dots import Data, wrap, unwrap
-from mo_files import URL
+from mo_files import URL, mimetype
 from mo_future import decorate, first, text
 from mo_json import value2json, json2value
 from mo_kwargs import override
-from mo_math import base642bytes, bytes2base64URL, rsa_crypto
+from mo_math import base642bytes, bytes2base64URL, rsa_crypto, crypto
 from mo_math.hashes import sha256
 from mo_threads.threads import register_thread
 from mo_times import Date
@@ -347,8 +347,7 @@ class Authenticator(object):
 
             return Response(
                 value2json(self.session_manager.cookie_data(session)),
-                status=200,
-                headers={"Set-Cookie": self.session_manager.cookie_string(session)}
+                status=200
             )
         except Exception as e:
             session.user = None

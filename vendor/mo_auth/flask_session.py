@@ -229,17 +229,6 @@ class SqliteSessionInterface(FlaskSessionInterface):
             with self.db.transaction() as t:
                 t.execute(sql_insert(self.table, new_record))
 
-            response.set_cookie(
-                app.session_cookie_name,
-                session_id,
-                path=self.cookie.path,
-                domain=self.cookie.domain,
-                expires=unix2Date(expires).format(RFC1123),
-                secure=self.cookie.secure,
-                somesite=self.cookie.somesite,
-                httponly=self.cookie.httponly,
-            )
-
 
 def setup_flask_session(flask_app, session_config):
     """
