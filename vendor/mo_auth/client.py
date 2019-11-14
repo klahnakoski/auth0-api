@@ -24,6 +24,7 @@ from pyLibrary.convert import text2QRCode
 
 DEBUG = False
 
+
 class Auth0Client(object):
     @override
     def __init__(self, kwargs=None):

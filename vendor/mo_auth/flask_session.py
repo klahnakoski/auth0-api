@@ -64,7 +64,7 @@ class SqliteSessionInterface(FlaskSessionInterface):
             self.setup()
         Thread.run("session monitor", self.monitor)
 
-    def setup_session(self, session):
+    def create_session(self, session):
         session.session_id = generate_sid()
         session.permanent = True
         session.expires = (Date.now() + self.cookie.max_lifetime).unix
@@ -98,18 +98,38 @@ class SqliteSessionInterface(FlaskSessionInterface):
                 )
             )
 
-    def make_cookie(self, session):
+    def cookie_string(self, session):
+        now = Date.now()
+        expires = min(unix2Date(session.expires), now+self.cookie.inactive_lifetime)
+
+        output = [self.cookie.name+"="+session.session_id]
+        if self.cookie.path:
+            output.append("path="+self.cookie.path)
+        if self.cookie.domain:
+            output.append("domain="+self.cookie.domain)
+        output.append("expires="+expires.format(RFC1123))
+        if self.cookie.secure:
+            output.append("secure")
+        if self.cookie.samesite:
+            output.append("samesite="+self.cookie.samesite)
+        if self.cookie.httponly:
+            output.append("httponly")
+
+        return ';'.join(output)
+
+    def cookie_data(self, session):
         now = Date.now()
         expires = now + self.cookie.max_lifetime
         session.expires = expires.unix
         return {
             "name": self.cookie.name,
             "value": session.session_id,
-            "domain": self.cookie.domain,
             "path": self.cookie.path,
-            "secure": self.cookie.secure,
-            "httponly": self.cookie.httponly,
+            "domain": self.cookie.domain,
             "expires": expires.format(RFC1123),
+            "secure": self.cookie.secure,
+            "samesite": self.cookie.samesite,
+            "httponly": self.cookie.httponly,
             "inactive_lifetime": self.cookie.inactive_lifetime.seconds,
         }
 
@@ -212,10 +232,11 @@ class SqliteSessionInterface(FlaskSessionInterface):
             response.set_cookie(
                 app.session_cookie_name,
                 session_id,
-                expires=unix2Date(expires).format(RFC1123),
-                domain=self.cookie.domain,
                 path=self.cookie.path,
+                domain=self.cookie.domain,
+                expires=unix2Date(expires).format(RFC1123),
                 secure=self.cookie.secure,
+                somesite=self.cookie.somesite,
                 httponly=self.cookie.httponly,
             )
 

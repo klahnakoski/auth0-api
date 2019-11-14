@@ -78,8 +78,9 @@ def cors_wrapper(func):
         )
         _setdefault(
             headers,
-            "Access-Control-Allow-Methods",
-            flask.request.headers.get("Access-Control-Request-Methods"),
+            "Access-Control-Allow-Methods",                              # PLURAL "Methods"
+            flask.request.headers.get("Access-Control-Request-Method"),  # SINGULAR "Method"
+            # "GET, PUT, POST, DELETE, PATCH, OPTIONS"
         )
         _setdefault(headers, "Content-Type", mimetype.JSON)
         _setdefault(
