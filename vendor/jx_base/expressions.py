@@ -26,7 +26,7 @@ import mo_json
 from jx_base.language import BaseExpression, ID, TYPE_ORDER, define_language, is_expression, is_op, value_compare
 from jx_base.utils import get_property_name, is_variable_name
 from mo_dots import Null, coalesce, is_data, is_sequence, split_field, wrap, is_container, is_many
-from mo_future import first, get_function_name, is_text, items as items_, text_type, utf8_json_encoder, zip_longest
+from mo_future import first, get_function_name, is_text, items as items_, text, utf8_json_encoder, zip_longest
 from mo_json import BOOLEAN, INTEGER, IS_NULL, NUMBER, OBJECT, STRING, python_type_to_json_type, scrub
 from mo_json.typed_encoder import inserter_type_to_json_type
 from mo_logs import Except, Log
@@ -260,6 +260,7 @@ class Expression(BaseExpression):
         """
         return FALSE  # GOOD DEFAULT ASSUMPTION
 
+    @simplified
     def partial_eval(self):
         """
         ATTEMPT TO SIMPLIFY THE EXPRESSION:
@@ -277,7 +278,7 @@ class Expression(BaseExpression):
         if self.get_id() != other.get_id():
             return False
         self_class = self.__class__
-        Log.note("this is slow on {{type}}", type=text_type(self_class.__name__))
+        Log.note("this is slow on {{type}}", type=text(self_class.__name__))
         return self.__data__() == other.__data__()
 
 
@@ -376,7 +377,7 @@ class OffsetOp(Expression):
         return self.var == other
 
     def __unicode__(self):
-        return text_type(self.var)
+        return text(self.var)
 
     def __str__(self):
         return str(self.var)
@@ -427,7 +428,6 @@ class GetOp(Expression):
         output = self.var.vars()
         for o in self.offsets:
             output |= o.vars()
-        return output
 
     def map(self, map_):
         return self.lang[GetOp([self.var.map(map_)] + [o.map(map_) for o in self.offsets])]
@@ -552,10 +552,10 @@ _json_encoder = utf8_json_encoder
 def value2json(value):
     try:
         scrubbed = scrub(value, scrub_number=float)
-        return text_type(_json_encoder(scrubbed))
+        return text(_json_encoder(scrubbed))
     except Exception as e:
         e = Except.wrap(e)
-        Log.warning("problem serializing {{type}}", type=text_type(repr(value)), cause=e)
+        Log.warning("problem serializing {{type}}", type=text(repr(value)), cause=e)
         raise e
 
 
@@ -642,6 +642,7 @@ class Literal(Expression):
     def type(self):
         return python_type_to_json_type[self._value.__class__]
 
+    @simplified
     def partial_eval(self):
         return self
 
@@ -904,11 +905,10 @@ class TupleOp(Expression):
     def missing(self):
         return FALSE
 
+    @simplified
     def partial_eval(self):
         if all(is_literal(t) for t in self.terms):
             return self.lang[Literal([t.value for t in self.terms])]
-
-        return self
 
 class LeavesOp(Expression):
     date_type = OBJECT
@@ -966,6 +966,7 @@ class BaseBinaryOp(Expression):
         else:
             return self.lang[OrOp([self.lhs.missing(), self.rhs.missing()])]
 
+    @simplified
     def partial_eval(self):
         lhs = self.lhs.partial_eval()
         rhs = self.rhs.partial_eval()
@@ -996,6 +997,7 @@ class DivOp(BaseBinaryOp):
             OrOp([self.lhs.missing(), self.rhs.missing(), EqOp([self.rhs, ZERO])])
         ])].partial_eval()
 
+    @simplified
     def partial_eval(self):
         default = self.default.partial_eval()
         rhs = self.rhs.partial_eval()
@@ -1557,6 +1559,8 @@ class BooleanOp(Expression):
             return FALSE
         elif term.type is BOOLEAN:
             return term
+        elif term is self.term:
+            return self
 
         exists = self.lang[term].exists().partial_eval()
         return exists
@@ -1661,8 +1665,8 @@ class NumberOp(Expression):
                 return ZERO
             elif term is TRUE:
                 return ONE
-            elif isinstance(term.value, text_type):
-                return Literal(float(text_type))
+            elif isinstance(term.value, text):
+                return Literal(float(text))
             elif isinstance(term.value, (int, float)):
                 return term
             else:
@@ -2191,6 +2195,7 @@ class PrefixOp(Expression):
     def missing(self):
         return FALSE
 
+    @simplified
     def partial_eval(self):
         return self.lang[CaseOp([
             WhenOp(self.prefix.missing(), then=TRUE),
@@ -2239,6 +2244,7 @@ class SuffixOp(Expression):
         else:
             return self.lang[SuffixOp([self.expr.map(map_), self.suffix.map(map_)])]
 
+    @simplified
     def partial_eval(self):
         if self.expr is None:
             return TRUE
@@ -2564,6 +2570,42 @@ class FindOp(Expression):
             default=self.default.map(map_)
         )
 
+    def missing(self):
+        output = AndOp([
+            self.default.missing(),
+            OrOp([
+                self.value.missing(),
+                self.find.missing(),
+                EqOp([BasicIndexOfOp([
+                    self.value,
+                    self.find,
+                    self.start
+                ]), Literal(-1)])
+            ])
+        ]).partial_eval()
+        return output
+
+    def exists(self):
+        return TRUE
+
+    @simplified
+    def partial_eval(self):
+        index = self.lang[BasicIndexOfOp([
+            self.value,
+            self.find,
+            self.start
+        ])].partial_eval()
+
+        output = self.lang[WhenOp(
+            OrOp([
+                self.value.missing(),
+                self.find.missing(),
+                BasicEqOp([index, Literal(-1)])
+            ]),
+            **{"then": self.default, "else": index}
+        )].partial_eval()
+        return output
+
 
 class SplitOp(Expression):
     has_simple_form = True
@@ -2750,9 +2792,9 @@ class InOp(Expression):
         if superset is NULL:
             return FALSE
         elif is_literal(value) and is_literal(superset):
-            return self.lang[Literal(self())]
+            return Literal(self())
         else:
-            return self.lang[InOp([value, superset])]
+            return self
 
     def __call__(self):
         return self.value() in self.superset()
@@ -3048,6 +3090,7 @@ class BasicIndexOfOp(Expression):
             start
         ])]
 
+
 class BasicEqOp(Expression):
     """
     PLACEHOLDER FOR BASIC `==` OPERATOR (CAN NOT DEAL WITH NULLS)
@@ -3055,6 +3098,7 @@ class BasicEqOp(Expression):
     data_type = BOOLEAN
 
     def __init__(self, terms):
+        Expression.__init__(self, terms)
         self.lhs, self.rhs = terms
 
     def __data__(self):
@@ -3137,6 +3181,7 @@ class BasicSubstringOp(Expression):
     data_type = STRING
 
     def __init__(self, terms):
+        Expression.__init__(self, terms)
         self.value, self.start, self.end = terms
 
     def __data__(self):

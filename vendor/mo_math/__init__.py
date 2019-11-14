@@ -10,12 +10,18 @@
 from __future__ import absolute_import, division, unicode_literals
 
 import base64
-from math import pow as math_pow, exp as math_exp, log as math_log, isnan as math_isnan, ceil as math_ceil, log10 as math_log10, floor as math_floor
-
-from Crypto.Hash import SHA256
+from math import (
+    pow as math_pow,
+    exp as math_exp,
+    log as math_log,
+    isnan as math_isnan,
+    ceil as math_ceil,
+    log10 as math_log10,
+    floor as math_floor,
+)
 
 from mo_dots import Null, coalesce, is_container
-from mo_future import round as _round, text_type, __builtin__, binary_type
+from mo_future import round as _round, text, __builtin__, binary_type
 
 """
 MATH FUNCTIONS THAT ASSUME None IMPLY *NOT APPLICABLE* RATHER THAN *MISSING*
@@ -33,6 +39,7 @@ def bayesian_add(*args):
     a = args[0]
     if a >= 1 or a <= 0:
         from mo_logs import Log
+
         Log.error("Only allowed values *between* zero and one")
 
     for b in args[1:]:
@@ -40,6 +47,7 @@ def bayesian_add(*args):
             continue
         if b >= 1 or b <= 0:
             from mo_logs import Log
+
             Log.error("Only allowed values *between* zero and one")
         a = a * b / (a * b + (1 - a) * (1 - b))
 
@@ -79,6 +87,7 @@ def log(v, base=None):
         return math_log(v, base)
     except Exception as e:
         from mo_logs import Log
+
         Log.error("error in log", cause=e)
 
 
@@ -92,6 +101,7 @@ def log10(v):
 # FOR GOODNESS SAKE - IF YOU PROVIDE A METHOD abs(), PLEASE PROVIDE ITS COMPLEMENT
 # x = abs(x)*sign(x)
 # FOUND IN numpy, BUT WE USUALLY DO NOT NEED TO BRING IN A BIG LIB FOR A SIMPLE DECISION
+
 
 def sign(v):
     if v == None:
@@ -198,10 +208,11 @@ def mod(value, mod=1):
         return value % mod
 
 
-# RETURN A VALUE CLOSE TO value, BUT WITH SHORTER len(text_type(value))<len(text_type(value)):
+# RETURN A VALUE CLOSE TO value, BUT WITH SHORTER len(text(value))<len(text(value)):
+
 
 def approx_str(value):
-    v = text_type(value)
+    v = text(value)
     d = v.find(".")
     if d == -1:
         return value
@@ -256,6 +267,7 @@ def COUNT(values):
 def MIN(values, *others):
     if others:
         from mo_logs import Log
+
         Log.warning("Calling wrong")
         return MIN([values] + list(others))
 
@@ -280,6 +292,7 @@ def MAX(values, *others):
 
     if others:
         from mo_logs import Log
+
         Log.warning("Calling wrong")
         return MAX([values] + list(others))
 
@@ -311,6 +324,7 @@ def SUM(values):
 def PRODUCT(values, *others):
     if len(others) > 0:
         from mo_logs import Log
+
         Log.error("no longer accepting args, use a single list")
 
     output = Null
@@ -329,6 +343,7 @@ def PRODUCT(values, *others):
 def AND(values, *others):
     if len(others) > 0:
         from mo_logs import Log
+
         Log.error("no longer accepting args, use a single list")
 
     for v in values:
@@ -342,6 +357,7 @@ def AND(values, *others):
 def OR(values, *others):
     if len(others) > 0:
         from mo_logs import Log
+
         Log.error("no longer accepting args, use a single list")
 
     for v in values:
@@ -355,6 +371,7 @@ def OR(values, *others):
 def UNION(values, *others):
     if len(others) > 0:
         from mo_logs import Log
+
         Log.error("no longer accepting args, use a single list")
 
     output = set()
@@ -383,6 +400,7 @@ def is_number(s):
 def INTERSECT(values, *others):
     if len(others) > 0:
         from mo_logs import Log
+
         Log.error("no longer accepting args, use a single list")
 
     output = set(values[0])
@@ -410,6 +428,7 @@ def almost_equal(first, second, digits=None, places=None, delta=None):
         return False
     except Exception as e:
         from mo_logs import Log
+
         Log.error("problem comparing", cause=e)
 
 
@@ -425,7 +444,7 @@ def bytes2base64URL(value):
     """
     if isinstance(value, bytearray):
         value = binary_type(value)
-    return base64.b64encode(value, b'-_').rstrip(b'=').decode('latin1')
+    return base64.b64encode(value, b"-_").rstrip(b"=").decode("latin1")
 
 
 def base642bytes(value):
@@ -436,17 +455,11 @@ def base642bytes(value):
 
 
 def int2base64(value):
-    return bytes2base64(value.to_bytes((value.bit_length()+7)//8, byteorder='big'))
+    return bytes2base64(value.to_bytes((value.bit_length() + 7) // 8, byteorder="big"))
 
 
 def base642int(value):
-    return int.from_bytes(base642bytes(value), byteorder='big')
-
-
-def sha256(bytes):
-    digest = SHA256.new()
-    digest.update(bytes)
-    return digest.digest()
+    return int.from_bytes(base642bytes(value), byteorder="big")
 
 
 from mo_math import stats

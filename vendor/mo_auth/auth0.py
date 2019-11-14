@@ -4,7 +4,7 @@ from jose import jwt
 
 from mo_dots import Data, wrap, unwrap
 from mo_files import URL
-from mo_future import decorate, first, text_type
+from mo_future import decorate, first, text
 from mo_json import value2json, json2value
 from mo_kwargs import override
 from mo_math import base642bytes, sha256, bytes2base64URL, rsa_crypto
@@ -79,7 +79,7 @@ class Authenticator(object):
                             {"state": "TEXT PRIMARY KEY", "session_id": "TEXT"},
                         )
                     )
-            if device.auth0.redirect_uri != text_type(
+            if device.auth0.redirect_uri != text(
                 URL(device.home, path=device.endpoints.callback)
             ):
                 Log.error("expecting home+endpoints.callback == auth0.redirect_uri")
