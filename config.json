@@ -14,13 +14,8 @@
 		},
 		"table": "sessions",
 		"cookie": {
-			"name":"annotation_session",
-			"domain": "dev.localhost",
-			"path": "/",
-			"secure": false,
 			"inactive_lifetime": "hour",
 			"max_lifetime": "month",
-			"httponly": false
 		}
 	},
 	"permissions": {

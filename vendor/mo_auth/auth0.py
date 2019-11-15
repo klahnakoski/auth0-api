@@ -30,19 +30,6 @@ REQUEST_LIMIT = 10_000
 LEEWAY = parse("minute").seconds
 
 
-def get_token_auth_header():
-    """Obtains the access token from the Authorization Header
-    """
-    try:
-        auth = request.headers.get("Authorization", None)
-        bearer, token = auth.split()
-        if bearer.lower() == "bearer":
-            return token
-    except Exception as e:
-        pass
-    Log.error('Expecting "Authorization = Bearer <token>" in header')
-
-
 def requires_scope(required_scope):
     """
     Determines if the required scope is present in the access token
@@ -330,7 +317,7 @@ class Authenticator(object):
         """
         now = Date.now().unix
         try:
-            access_token = get_token_auth_header()
+            access_token = request.headers.get("Authorization", None)
             # if access_token.error:
             #     Log.error("{{error}}: {{error_description}}", access_token)
             if len(access_token.split(".")) == 3:
